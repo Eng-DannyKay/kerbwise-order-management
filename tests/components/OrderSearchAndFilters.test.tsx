@@ -1,13 +1,14 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OrdersPage } from '../../src/pages/OrdersPage'
-import { getOrders } from '../../src/services/orders-api'
+import { getAllOrders, getOrders } from '../../src/services/orders-api'
 import type { OrdersQuery } from '../../src/types/order.types'
 import { buildOrder, buildPage } from '../fixtures/orders'
 
 jest.mock('../../src/services/orders-api')
 
 const getOrdersMock = jest.mocked(getOrders)
+const getAllOrdersMock = jest.mocked(getAllOrders)
 
 function lastQuery(): OrdersQuery {
   const call = getOrdersMock.mock.lastCall
@@ -70,17 +71,39 @@ describe('Order search, filters and sorting', () => {
     expect(await screen.findByText('45 paid orders match “ben”')).toBeInTheDocument()
   })
 
-  it.each([
-    ['Date created · Oldest first', 'createdAt', 'asc'],
-    ['Total · High to low', 'total', 'desc'],
-    ['Total · Low to high', 'total', 'asc'],
-  ])('sorts by %s and returns to page 1', async (label, sort, dir) => {
+  it('sorts by date on the server and returns to page 1', async () => {
     const user = await renderOnPageTwo()
+
+    await user.click(screen.getByRole('button', { name: /^Sort:/ }))
+    await user.click(screen.getByRole('menuitemradio', { name: 'Date created · Oldest first' }))
+
+    await waitFor(() => expect(lastQuery()).toMatchObject({ sort: 'createdAt', dir: 'asc', page: 1 }))
+  })
+
+  it.each([
+    ['Total · High to low', ['#3001', '#3003', '#3002']],
+    ['Total · Low to high', ['#3002', '#3003', '#3001']],
+  ])('sorts by %s across every loaded order, not just one page', async (label, expected) => {
+    const user = userEvent.setup()
+    getAllOrdersMock.mockResolvedValue({
+      orders: [
+        buildOrder({ id: 'ord_3002', number: 3002, total: 36.99 }),
+        buildOrder({ id: 'ord_3001', number: 3001, total: 1401.99 }),
+        buildOrder({ id: 'ord_3003', number: 3003, total: 78.5 }),
+      ],
+      rejected: [],
+      changedWhileLoading: false,
+    })
+    render(<OrdersPage />)
+    await screen.findByRole('table')
+    await user.type(screen.getByLabelText('Search orders'), 'ben{Enter}')
 
     await user.click(screen.getByRole('button', { name: /^Sort:/ }))
     await user.click(screen.getByRole('menuitemradio', { name: label }))
 
-    await waitFor(() => expect(lastQuery()).toMatchObject({ sort, dir, page: 1 }))
+    await waitFor(() => expect(getAllOrdersMock).toHaveBeenCalledWith({ q: 'ben', status: undefined }, expect.anything()))
+    const table = screen.getByRole('table')
+    await waitFor(() => expect(within(table).getAllByRole('rowheader').map((cell) => cell.textContent)).toEqual(expected))
   })
 
   it('offers a way back when nothing matches', async () => {

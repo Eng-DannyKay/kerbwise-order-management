@@ -4,6 +4,7 @@ import type {
   OrderSummary,
   OrdersPage,
   OrdersQuery,
+  RejectedOrder,
   UpdatableOrderStatus,
 } from '../types/order.types'
 import { canFulfilOrder } from '../utils/order-rules'
@@ -199,3 +200,43 @@ export async function updateOrderStatus(
   return updated.value
 }
 
+/** Above this many pages, sorting the whole collection is refused rather than flooding the API. */
+export const MAX_COLLECTION_PAGES = 20
+
+export interface OrderCollection {
+  orders: OrderSummary[]
+  rejected: RejectedOrder[]
+  /** The matching total changed between pages, so orders may be missing or out of date. */
+  changedWhileLoading: boolean
+}
+
+/**
+ * Loads every page of a query one after another and removes duplicates by order id. The pages are fetched at
+ * different moments, so this is not a consistent snapshot: `changedWhileLoading` reports when the total moved.
+ */
+export async function getAllOrders(
+  query: Pick<OrdersQuery, 'q' | 'status'>,
+  options: RequestOptions = {},
+): Promise<OrderCollection> {
+  const pageQuery = (page: number): OrdersQuery => ({ ...query, sort: 'createdAt', dir: 'desc', page, pageSize: MAX_PAGE_SIZE })
+  const first = await getOrders(pageQuery(1), options)
+  const pageCount = Math.ceil(first.total / MAX_PAGE_SIZE)
+  if (pageCount > MAX_COLLECTION_PAGES) {
+    throw new ApiError('There are too many orders to sort by total. Search or filter first, then sort.', null, 'too_many')
+  }
+
+  const orders = new Map<string, OrderSummary>()
+  const rejected = new Map<string, RejectedOrder>()
+  let changedWhileLoading = false
+  const collect = (page: OrdersPage) => {
+    for (const order of page.orders) orders.set(order.id, order)
+    page.rejected.forEach((record, index) => rejected.set(record.id ?? `page${page.page}-${index}`, record))
+    if (page.total !== first.total) changedWhileLoading = true
+  }
+
+  collect(first)
+  for (let page = 2; page <= pageCount; page++) {
+    collect(await getOrders(pageQuery(page), options))
+  }
+  return { orders: [...orders.values()], rejected: [...rejected.values()], changedWhileLoading }
+}

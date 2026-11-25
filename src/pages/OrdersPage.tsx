@@ -9,6 +9,7 @@ import { StateMessage } from '../components/ui/StateMessage'
 import { OrderDetailsDrawer } from '../components/orders/OrderDetailsDrawer'
 import { OrderFilters } from '../components/orders/OrderFilters'
 import { OrdersTable, OrdersTableSkeleton } from '../components/orders/OrdersTable'
+import { ListChangedNotice } from '../components/orders/ListChangedNotice'
 import { RejectedOrdersNotice } from '../components/orders/RejectedOrdersNotice'
 
 export const ORDERS_PAGE_SIZE = 20
@@ -29,7 +30,7 @@ export function OrdersPage() {
   const orderQuery = useOrderQuery(ORDERS_PAGE_SIZE)
   const { page, setPage, search, status, isFiltered, clearFilters } = orderQuery
   const sectionRef = useRef<HTMLElement>(null)
-  const { data, error, isLoading, reload } = useOrders(orderQuery.query)
+  const { data, error, isLoading, listChanged, reload } = useOrders(orderQuery.query)
 
   const [selectedOrder, setSelectedOrder] = useState<OrderSummary | null>(null)
   const [openSingleMatch, setOpenSingleMatch] = useState(false)
@@ -48,6 +49,11 @@ export function OrdersPage() {
   function submitSearch() {
     orderQuery.submitSearch()
     setOpenSingleMatch(true)
+  }
+
+  function refreshList() {
+    setPage(1)
+    reload()
   }
 
   function changePage(nextPage: number) {
@@ -101,6 +107,7 @@ export function OrdersPage() {
           </div>
         )}
 
+        {data && !error && listChanged && <ListChangedNotice onRefresh={refreshList} />}
         {data && !error && <RejectedOrdersNotice rejected={data.rejected} />}
 
         <div aria-busy={isLoading} className="border-t border-line-soft">

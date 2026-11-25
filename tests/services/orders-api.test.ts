@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import { ApiError, FulfilmentNotAllowedError } from '../../src/services/api-error'
-import { getOrder, getOrders, REQUEST_TIMEOUT_MS, updateOrderStatus } from '../../src/services/orders-api'
+import { getAllOrders, getOrder, getOrders, MAX_COLLECTION_PAGES, REQUEST_TIMEOUT_MS, updateOrderStatus } from '../../src/services/orders-api'
 import type { OrderDetail, OrderSummary } from '../../src/types/order.types'
 
 const summary: OrderSummary = {
@@ -301,3 +301,42 @@ describe('rate limiting', () => {
   })
 })
 
+describe('getAllOrders', () => {
+  const order = (number: number) => ({ ...summary, id: `ord_${number}`, number })
+  const pageOf = (numbers: number[], page: number, total: number) =>
+    jsonResponse({ orders: numbers.map(order), page, pageSize: 50, total })
+
+  it('loads every page in turn with the filters, 50 at a time, sorted by date', async () => {
+    const fetchMock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(pageOf([3, 2], 1, 120))
+      .mockResolvedValueOnce(pageOf([1], 2, 120))
+      .mockResolvedValueOnce(pageOf([0], 3, 120))
+
+    const collection = await getAllOrders({ q: 'ben', status: 'paid' })
+
+    const queries = fetchMock.mock.calls.map(([input]) => Object.fromEntries(new URL(String(input)).searchParams))
+    expect(queries).toEqual([1, 2, 3].map((page) => ({ q: 'ben', status: 'paid', sort: 'createdAt', dir: 'desc', page: String(page), pageSize: '50' })))
+    expect(collection.orders.map((o) => o.number)).toEqual([3, 2, 1, 0])
+    expect(collection.changedWhileLoading).toBe(false)
+  })
+
+  it('removes an order that appears on two pages and flags that the list moved', async () => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(pageOf([5, 4], 1, 60))
+      .mockResolvedValueOnce(pageOf([4, 3], 2, 61))
+
+    const collection = await getAllOrders({})
+
+    expect(collection.orders.map((o) => o.number)).toEqual([5, 4, 3])
+    expect(collection.changedWhileLoading).toBe(true)
+  })
+
+  it('refuses to load more than the page limit', async () => {
+    const fetchMock = mockFetch(pageOf([1], 1, (MAX_COLLECTION_PAGES + 1) * 50))
+
+    await expect(getAllOrders({})).rejects.toMatchObject({ code: 'too_many' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
