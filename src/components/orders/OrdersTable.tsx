@@ -2,6 +2,7 @@ import type { OrderSummary } from '../../types/order.types'
 import { formatCurrency, formatShortDateTime } from '../../utils/formatters'
 import { displayCustomerName, ORDER_CHANNEL_LABELS } from '../../utils/order-labels'
 import { Button } from '../ui/Button'
+import { Skeleton } from '../ui/Skeleton'
 import { OrderStatus } from './OrderStatus'
 
 interface OrdersTableProps {
@@ -85,23 +86,49 @@ export function OrdersTable({ orders, onViewOrder }: OrdersTableProps) {
   )
 }
 
-const SKELETON_WIDTHS = ['w-40', 'w-32', 'w-36', 'w-28', 'w-44', 'w-32', 'w-30', 'w-36']
-const bar = 'h-3 rounded-md bg-line motion-safe:animate-pulse'
+const SKELETON_NAME_WIDTHS = ['w-40', 'w-32', 'w-36', 'w-28', 'w-44', 'w-32', 'w-30', 'w-36']
 
+/** Mirrors the table on wider screens and the cards on phones, so nothing jumps when orders arrive. */
 export function OrdersTableSkeleton() {
   return (
     <div role="status">
       <div aria-hidden="true">
-        {SKELETON_WIDTHS.map((nameWidth, index) => (
-          <div key={index} className="flex h-[60px] items-center gap-4 border-b border-line-soft px-5">
-            <span className={`${bar} w-14`} />
-            <span className={`${bar} ${nameWidth}`} />
-            <span className={`${bar} ml-auto hidden w-24 md:block`} />
-            <span className={`${bar} h-5 w-20 rounded-full`} />
+        <div className="hidden md:block">
+          <div className="flex h-10 items-center bg-surface-subtle px-5">
+            <Skeleton className="w-24" />
           </div>
-        ))}
+          {SKELETON_NAME_WIDTHS.map((nameWidth, index) => (
+            <div key={index} className="flex h-[60px] items-center gap-6 border-t border-line-soft px-5">
+              <Skeleton className="w-14 flex-none" />
+              <Skeleton className={`${nameWidth} flex-none`} />
+              <Skeleton className="w-24 flex-none" />
+              <Skeleton className="hidden w-[4.5rem] flex-none lg:block" />
+              <Skeleton className="ml-auto w-14 flex-none" />
+              <Skeleton className="h-[22px] w-20 flex-none rounded-full" />
+              <Skeleton className="h-9 w-[3.75rem] flex-none rounded-lg" />
+            </div>
+          ))}
+        </div>
+        <ul className="divide-y divide-line-soft md:hidden">
+          {SKELETON_NAME_WIDTHS.slice(0, 5).map((nameWidth, index) => (
+            <li key={index} className="flex flex-col gap-3 px-4 py-3.5">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-[22px] w-20 rounded-full" />
+              </div>
+              <div className="flex items-center justify-between">
+                <Skeleton className={nameWidth} />
+                <Skeleton className="w-16" />
+              </div>
+              <div className="flex items-center justify-between">
+                <Skeleton className="w-36" />
+                <Skeleton className="h-11 w-[3.75rem] rounded-lg" />
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
-      <p className="px-5 py-3.5 text-muted">Loading orders…</p>
+      <p className="border-t border-line-soft px-5 py-3.5 text-muted">Loading orders…</p>
     </div>
   )
 }
