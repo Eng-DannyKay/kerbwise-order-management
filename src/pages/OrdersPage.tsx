@@ -1,0 +1,142 @@
+import { useRef, useState } from 'react'
+import { useOrderQuery, type StatusFilter } from '../hooks/useOrderQuery'
+import { useOrders } from '../hooks/useOrders'
+import type { OrderSummary } from '../types/order.types'
+import { ORDER_STATUS_LABELS } from '../utils/order-labels'
+import { Button, focusRing } from '../components/ui/Button'
+import { Pagination } from '../components/ui/Pagination'
+import { StateMessage } from '../components/ui/StateMessage'
+import { OrderDetailsDrawer } from '../components/orders/OrderDetailsDrawer'
+import { OrderFilters } from '../components/orders/OrderFilters'
+import { OrdersTable, OrdersTableSkeleton } from '../components/orders/OrdersTable'
+
+export const ORDERS_PAGE_SIZE = 20
+
+function describeResults(total: number, search: string, status: StatusFilter): string {
+  const statusPart = status === 'all' ? '' : `${ORDER_STATUS_LABELS[status].toLowerCase()} `
+  const orders = `${total} ${statusPart}${total === 1 ? 'order' : 'orders'}`
+  if (!search) return orders
+  return `${orders} ${total === 1 ? 'matches' : 'match'} “${search}”`
+}
+
+function describeNoResults(search: string, status: StatusFilter): string {
+  if (search) return `No orders match “${search}”`
+  return status === 'all' ? 'No orders yet' : `No ${ORDER_STATUS_LABELS[status].toLowerCase()} orders`
+}
+
+export function OrdersPage() {
+  const orderQuery = useOrderQuery(ORDERS_PAGE_SIZE)
+  const { page, setPage, search, status, isFiltered, clearFilters } = orderQuery
+  const sectionRef = useRef<HTMLElement>(null)
+  const { data, error, isLoading, reload } = useOrders(orderQuery.query)
+
+  const [selectedOrder, setSelectedOrder] = useState<OrderSummary | null>(null)
+  const [openSingleMatch, setOpenSingleMatch] = useState(false)
+
+  const lastPage = data ? Math.max(1, Math.ceil(data.total / ORDERS_PAGE_SIZE)) : null
+  if (lastPage !== null && page > lastPage) {
+    setPage(lastPage)
+  }
+
+  if (openSingleMatch && !isLoading) {
+    setOpenSingleMatch(false)
+    const onlyMatch = !error && data?.total === 1 ? data.orders[0] : undefined
+    if (onlyMatch) setSelectedOrder(onlyMatch)
+  }
+
+  function submitSearch() {
+    orderQuery.submitSearch()
+    setOpenSingleMatch(true)
+  }
+
+  function changePage(nextPage: number) {
+    setPage(nextPage)
+    const section = sectionRef.current
+    if (section && section.getBoundingClientRect().top < 0) {
+      section.scrollIntoView({ block: 'start' })
+    }
+  }
+
+  const summary = data && !error ? describeResults(data.total, search, status) : null
+
+  return (
+    <section ref={sectionRef} aria-labelledby="orders-heading" className="flex scroll-mt-4 flex-col gap-4">
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <h1 id="orders-heading" className="text-2xl font-bold tracking-tight">
+          Orders
+        </h1>
+        <p className="text-muted">
+          {!isFiltered && summary ? `${summary} · ` : ''}Website, WhatsApp and till
+        </p>
+        {isLoading && data && (
+          <p role="status" className="ml-auto text-muted">
+            Loading…
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-card border border-line bg-white shadow-card">
+        <OrderFilters
+          searchText={orderQuery.searchText}
+          onSearchTextChange={orderQuery.setSearchText}
+          onSearchSubmit={submitSearch}
+          onSearchClear={orderQuery.clearSearch}
+          status={status}
+          onStatusChange={orderQuery.setStatus}
+          sort={orderQuery.sort}
+          onSortChange={orderQuery.setSort}
+        />
+
+        {isFiltered && (
+          <div className="flex flex-wrap items-center gap-x-2 px-4 pb-3 text-muted">
+            <p aria-live="polite">{summary}</p>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className={`min-h-11 rounded-sm font-semibold text-brand-700 underline underline-offset-2 sm:min-h-0 ${focusRing}`}
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+
+        <div aria-busy={isLoading} className="border-t border-line-soft">
+          {error ? (
+            <StateMessage
+              tone="danger"
+              title="Unable to load orders"
+              description={`${error} No orders were changed.`}
+              action={
+                <Button variant="primary" onClick={reload}>
+                  Try again
+                </Button>
+              }
+            />
+          ) : !data ? (
+            <OrdersTableSkeleton />
+          ) : data.orders.length === 0 ? (
+            <StateMessage
+              title={describeNoResults(search, status)}
+              description={
+                isFiltered
+                  ? 'Check the order number or try the customer’s name.'
+                  : 'New orders from the website, WhatsApp and the till appear here.'
+              }
+              action={isFiltered ? <Button onClick={clearFilters}>Clear search and filters</Button> : undefined}
+            />
+          ) : (
+            <div className={isLoading ? 'opacity-60 transition-opacity' : undefined}>
+              <OrdersTable orders={data.orders} onViewOrder={setSelectedOrder} />
+            </div>
+          )}
+        </div>
+
+        {data && !error && data.total > 0 && (
+          <Pagination page={page} pageSize={ORDERS_PAGE_SIZE} total={data.total} onPageChange={changePage} />
+        )}
+      </div>
+
+      <OrderDetailsDrawer summary={selectedOrder} onClose={() => setSelectedOrder(null)} onOrdersChanged={reload} />
+    </section>
+  )
+}
