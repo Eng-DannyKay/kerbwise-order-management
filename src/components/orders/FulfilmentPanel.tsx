@@ -3,6 +3,7 @@ import { updateOrderStatus } from '../../services/orders-api'
 import type { OrderDetail } from '../../types/order.types'
 import { formatCurrency } from '../../utils/formatters'
 import { describeFulfilmentFailure } from '../../utils/fulfilment-errors'
+import { displayCustomerName } from '../../utils/order-labels'
 import { canFulfilOrder } from '../../utils/order-rules'
 import { Button } from '../ui/Button'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
@@ -146,12 +147,18 @@ export function FulfilmentPanel({ order, onOrderChange, onReload, onOrdersChange
 
       {order.status === 'cancelled' && <p className="text-muted">Cancelled orders can’t be fulfilled.</p>}
 
+      {order.status === 'on_hold' && <p className="text-muted">This order is on hold, so it can’t be fulfilled.</p>}
+
+      {order.status === 'part_refunded' && (
+        <p className="text-muted">This order has been partly refunded, so it can’t be fulfilled from the desk.</p>
+      )}
+
       <ConfirmDialog
         isOpen={(state.kind === 'confirming' || state.kind === 'submitting') && canFulfilOrder(order)}
         title={`Mark order #${order.number} as fulfilled?`}
         description={
           <>
-            {order.customerName} · {formatCurrency(order.total)}. Payment has been received. This tells the team the
+            {displayCustomerName(order.customerName)} · {formatCurrency(order.total)}. Payment has been received. This tells the team the
             order has been packed and handed over.
           </>
         }

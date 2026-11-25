@@ -1,6 +1,6 @@
 import type { OrderSummary } from '../../types/order.types'
 import { formatCurrency, formatShortDateTime } from '../../utils/formatters'
-import { ORDER_CHANNEL_LABELS } from '../../utils/order-labels'
+import { displayCustomerName, ORDER_CHANNEL_LABELS } from '../../utils/order-labels'
 import { Button } from '../ui/Button'
 import { OrderStatus } from './OrderStatus'
 
@@ -36,7 +36,7 @@ export function OrdersTable({ orders, onViewOrder }: OrdersTableProps) {
               <tr key={order.id} className="border-t border-line-soft">
                 <th scope="row" className={`${cellClassName} font-semibold`}>#{order.number}</th>
                 <td className={cellClassName}>
-                  {order.customerName}
+                  {displayCustomerName(order.customerName)}
                   <span className="block text-[0.8125rem] text-muted lg:hidden">{ORDER_CHANNEL_LABELS[order.channel]}</span>
                 </td>
                 <td className={`${cellClassName} whitespace-nowrap text-muted`}>
@@ -66,7 +66,7 @@ export function OrdersTable({ orders, onViewOrder }: OrdersTableProps) {
               <OrderStatus status={order.status} />
             </div>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <span className="font-semibold break-words">{order.customerName}</span>
+              <span className="font-semibold break-words">{displayCustomerName(order.customerName)}</span>
               <span className="font-bold tabular-nums">{formatCurrency(order.total)}</span>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">

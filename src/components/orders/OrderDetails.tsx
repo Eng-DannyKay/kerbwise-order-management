@@ -1,6 +1,6 @@
 import type { OrderDetail } from '../../types/order.types'
 import { formatCurrency, formatDateTime } from '../../utils/formatters'
-import { ORDER_CHANNEL_LABELS } from '../../utils/order-labels'
+import { displayCustomerName, ORDER_CHANNEL_LABELS } from '../../utils/order-labels'
 
 interface OrderDetailsProps {
   order: OrderDetail
@@ -15,7 +15,7 @@ export function OrderDetails({ order }: OrderDetailsProps) {
       <dl className="grid grid-cols-1 gap-x-5 gap-y-3.5 min-[360px]:grid-cols-2">
         <div>
           <dt className="text-[0.8125rem] text-muted">Customer</dt>
-          <dd className="mt-0.5 font-semibold break-words">{order.customerName}</dd>
+          <dd className="mt-0.5 font-semibold break-words">{displayCustomerName(order.customerName)}</dd>
         </div>
         <div>
           <dt className="text-[0.8125rem] text-muted">Order date</dt>

@@ -9,6 +9,7 @@ import { StateMessage } from '../components/ui/StateMessage'
 import { OrderDetailsDrawer } from '../components/orders/OrderDetailsDrawer'
 import { OrderFilters } from '../components/orders/OrderFilters'
 import { OrdersTable, OrdersTableSkeleton } from '../components/orders/OrdersTable'
+import { RejectedOrdersNotice } from '../components/orders/RejectedOrdersNotice'
 
 export const ORDERS_PAGE_SIZE = 20
 
@@ -100,6 +101,8 @@ export function OrdersPage() {
           </div>
         )}
 
+        {data && !error && <RejectedOrdersNotice rejected={data.rejected} />}
+
         <div aria-busy={isLoading} className="border-t border-line-soft">
           {error ? (
             <StateMessage
@@ -114,7 +117,7 @@ export function OrdersPage() {
             />
           ) : !data ? (
             <OrdersTableSkeleton />
-          ) : data.orders.length === 0 ? (
+          ) : data.orders.length === 0 && data.rejected.length > 0 ? null : data.orders.length === 0 ? (
             <StateMessage
               title={describeNoResults(search, status)}
               description={
