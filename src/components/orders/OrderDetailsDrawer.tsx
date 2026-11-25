@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useOrderDetail } from '../../hooks/useOrderDetail'
 import type { OrderSummary } from '../../types/order.types'
 import { Button, focusRing } from '../ui/Button'
@@ -23,8 +24,12 @@ interface OrderPanelContentProps {
 
 /** Mounted only while the panel is open, so every opening fetches the order afresh. */
 function OrderPanelContent({ summary, onClose, onOrdersChanged }: OrderPanelContentProps) {
-  const { order, error, isLoading, reload, replaceOrder } = useOrderDetail(summary.id)
-  const status = order?.status ?? summary.status
+  const { order, error, isGone, isLoading, reload, replaceOrder } = useOrderDetail(summary.id)
+  const status = error ? null : (order?.status ?? summary.status)
+
+  useEffect(() => {
+    if (isGone) onOrdersChanged()
+  }, [isGone, onOrdersChanged])
 
   return (
     <>
@@ -33,7 +38,7 @@ function OrderPanelContent({ summary, onClose, onOrdersChanged }: OrderPanelCont
           <h2 id="order-details-heading" className="text-xl font-bold tracking-tight">
             Order #{summary.number}
           </h2>
-          <OrderStatus status={status} />
+          {status && <OrderStatus status={status} />}
         </div>
         <button
           type="button"
@@ -60,12 +65,14 @@ function OrderPanelContent({ summary, onClose, onOrdersChanged }: OrderPanelCont
         {error ? (
           <StateMessage
             tone="danger"
-            title="Unable to load this order"
+            title={isGone ? `Order #${summary.number} no longer exists` : 'Unable to load this order'}
             description={error}
             action={
-              <Button variant="primary" onClick={reload}>
-                Try again
-              </Button>
+              isGone ? undefined : (
+                <Button variant="primary" onClick={reload}>
+                  Try again
+                </Button>
+              )
             }
           />
         ) : order ? (
