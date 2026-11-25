@@ -31,6 +31,13 @@
   body {
     @apply bg-canvas font-sans text-ink antialiased;
   }
+
+  button:not(:disabled, [aria-disabled='true']),
+  a[href],
+  summary,
+  [role='button'] {
+    cursor: pointer;
+  }
 }
 
 html:has(dialog[open]) {
