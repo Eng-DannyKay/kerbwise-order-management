@@ -1,0 +1,15 @@
+/docs
+.env
+.env.local
+
+node_modules
+dist
+*.local
+*.log
+coverage
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+.claude
