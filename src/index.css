@@ -22,14 +22,30 @@
   --color-danger-700: #a31b12;
   --color-settled-50: #ecedee;
   --color-settled-800: #3f454c;
+  --color-skeleton: #e6e8eb;
 
   --radius-card: 10px;
   --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04);
+
+  --animate-skeleton: skeleton 1.4s ease-in-out infinite;
+
+  @keyframes skeleton {
+    50% {
+      opacity: 0.45;
+    }
+  }
 }
 
 @layer base {
   body {
     @apply bg-canvas font-sans text-ink antialiased;
+  }
+
+  button:not(:disabled, [aria-disabled='true']),
+  a[href],
+  summary,
+  [role='button'] {
+    cursor: pointer;
   }
 }
 

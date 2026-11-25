@@ -103,6 +103,19 @@ describe('OrdersPage', () => {
     expect(await screen.findByRole('table')).toBeInTheDocument()
   })
 
+  it('shows the loading skeleton instead of the old rows while a new filter loads', async () => {
+    const user = userEvent.setup()
+    getOrdersMock.mockResolvedValueOnce(buildPage([buildOrder()]))
+    render(<OrdersPage />)
+    await screen.findByRole('table')
+
+    getOrdersMock.mockReturnValueOnce(new Promise(() => {}))
+    await user.click(within(screen.getByRole('group', { name: 'Filter by status' })).getByRole('button', { name: 'New' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading orders…')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
   it('shows an empty state when there are no orders', async () => {
     getOrdersMock.mockResolvedValue(buildPage([]))
 

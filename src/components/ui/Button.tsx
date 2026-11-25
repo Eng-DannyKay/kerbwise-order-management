@@ -4,8 +4,11 @@ export const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2
 
 const VARIANTS = {
   primary: 'border-brand-600 bg-brand-600 text-white hover:border-brand-700 hover:bg-brand-700',
-  secondary: 'border-line-strong bg-white text-ink hover:bg-canvas aria-disabled:hover:bg-white',
+  secondary: 'border-line-strong bg-white text-ink hover:bg-canvas',
 }
+
+const DISABLED =
+  'aria-disabled:cursor-not-allowed aria-disabled:border-line-strong aria-disabled:bg-settled-50 aria-disabled:text-muted aria-disabled:hover:border-line-strong aria-disabled:hover:bg-settled-50'
 
 const SIZES = {
   md: 'min-h-11 px-4 sm:min-h-10',
@@ -22,7 +25,7 @@ export function Button({ variant = 'secondary', size = 'md', type = 'button', cl
   return (
     <button
       type={type}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg border text-sm font-semibold aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${focusRing} ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg border text-sm font-semibold ${DISABLED} ${focusRing} ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
       {...props}
     />
   )

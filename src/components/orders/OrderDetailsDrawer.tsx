@@ -1,11 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { useOrderDetail } from '../../hooks/useOrderDetail'
 import type { OrderSummary } from '../../types/order.types'
+import type { FulfilmentResult } from '../../utils/fulfilment-errors'
 import { Button, focusRing } from '../ui/Button'
 import { Drawer } from '../ui/Drawer'
 import { StateMessage } from '../ui/StateMessage'
 import { FulfilmentPanel } from './FulfilmentPanel'
-import { OrderDetails } from './OrderDetails'
+import { OrderDetails, OrderDetailsSkeleton } from './OrderDetails'
 import { OrderStatus } from './OrderStatus'
 
 interface OrderDetailsDrawerProps {
@@ -14,16 +15,20 @@ interface OrderDetailsDrawerProps {
   onClose: () => void
   /** Called after the server reports a change to the order, so the list can refresh. */
   onOrdersChanged: () => void
+  onFulfilled: (result: FulfilmentResult) => void
+  /** Rendered inside the panel while it is open, because the modal makes the page behind it inert. */
+  toast: ReactNode
 }
 
 interface OrderPanelContentProps {
   summary: OrderSummary
   onClose: () => void
   onOrdersChanged: () => void
+  onFulfilled: (result: FulfilmentResult) => void
 }
 
 /** Mounted only while the panel is open, so every opening fetches the order afresh. */
-function OrderPanelContent({ summary, onClose, onOrdersChanged }: OrderPanelContentProps) {
+function OrderPanelContent({ summary, onClose, onOrdersChanged, onFulfilled }: OrderPanelContentProps) {
   const { order, error, isGone, isLoading, reload, replaceOrder } = useOrderDetail(summary.id)
   const status = error ? null : (order?.status ?? summary.status)
 
@@ -78,27 +83,38 @@ function OrderPanelContent({ summary, onClose, onOrdersChanged }: OrderPanelCont
         ) : order ? (
           <OrderDetails order={order} />
         ) : (
-          <p role="status" className="py-10 text-center text-muted">
-            Loading order details…
-          </p>
+          <OrderDetailsSkeleton />
         )}
       </div>
 
       {order && !error && (
         <div className="shrink-0 border-t border-line-soft bg-white p-4 sm:px-5">
-          <FulfilmentPanel order={order} onOrderChange={replaceOrder} onReload={reload} onOrdersChanged={onOrdersChanged} />
+          <FulfilmentPanel
+            order={order}
+            onOrderChange={replaceOrder}
+            onReload={reload}
+            onOrdersChanged={onOrdersChanged}
+            onFulfilled={onFulfilled}
+          />
         </div>
       )}
     </>
   )
 }
 
-export function OrderDetailsDrawer({ summary, onClose, onOrdersChanged }: OrderDetailsDrawerProps) {
+export function OrderDetailsDrawer({ summary, onClose, onOrdersChanged, onFulfilled, toast }: OrderDetailsDrawerProps) {
   return (
     <Drawer isOpen={summary !== null} onClose={onClose} labelledBy="order-details-heading">
       {summary && (
-        <OrderPanelContent key={summary.id} summary={summary} onClose={onClose} onOrdersChanged={onOrdersChanged} />
+        <OrderPanelContent
+          key={summary.id}
+          summary={summary}
+          onClose={onClose}
+          onOrdersChanged={onOrdersChanged}
+          onFulfilled={onFulfilled}
+        />
       )}
+      {toast}
     </Drawer>
   )
 }
