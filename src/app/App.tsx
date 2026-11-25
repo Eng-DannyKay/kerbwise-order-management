@@ -3,7 +3,7 @@ import { OrdersPage } from '../pages/OrdersPage'
 export function App() {
   return (
     <div className="min-h-screen text-sm">
-      <header className="border-b border-line bg-white">
+      <header className="sticky top-0 z-40 border-b border-line bg-white">
         <div className="flex min-h-14 flex-wrap items-center gap-x-6 gap-y-1 px-5 py-2">
           <div className="flex items-center gap-2.5">
             <svg width="28" height="28" viewBox="0 0 30 30" aria-hidden="true">

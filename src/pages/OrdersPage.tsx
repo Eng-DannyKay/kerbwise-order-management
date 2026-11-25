@@ -86,7 +86,7 @@ export function OrdersPage() {
   const toastNode = toast && <Toast title={toast.title} detail={toast.detail} onDismiss={() => setToast(null)} />
 
   return (
-    <section ref={sectionRef} aria-labelledby="orders-heading" className="flex scroll-mt-4 flex-col gap-4">
+    <section ref={sectionRef} aria-labelledby="orders-heading" className="flex scroll-mt-20 flex-col gap-4">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <h1 id="orders-heading" className="text-2xl font-bold tracking-tight">
           Orders
