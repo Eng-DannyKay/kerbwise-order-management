@@ -8,7 +8,7 @@ import type {
 } from '../types/order.types'
 import { canFulfilOrder } from '../utils/order-rules'
 import { ApiError, FulfilmentNotAllowedError } from './api-error'
-import { isOrderDetail, isOrdersPage, readErrorCode } from './order-parsers'
+import { parseOrderDetail, parseOrdersPage, readErrorCode } from './order-parsers'
 
 export const MAX_PAGE_SIZE = 50
 
@@ -56,8 +56,8 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function invalidResponse(status: number | null = null): ApiError {
-  return new ApiError('The orders service returned data in an unexpected format.', status, 'invalid_response')
+function invalidResponse(reason: string): ApiError {
+  return new ApiError('The orders service returned data in an unexpected format.', null, 'invalid_response', { reason })
 }
 
 function clampPageSize(pageSize: number): number {
@@ -82,18 +82,16 @@ function buildOrdersSearch(query: OrdersQuery): string {
 /** `pageSize` is capped at {@link MAX_PAGE_SIZE}. */
 export async function getOrders(query: OrdersQuery = {}, options: RequestOptions = {}): Promise<OrdersPage> {
   const body = await request(`/orders${buildOrdersSearch(query)}`, { signal: options.signal })
-  if (!isOrdersPage(body)) {
-    throw invalidResponse()
-  }
-  return body
+  const page = parseOrdersPage(body)
+  if (!page.ok) throw invalidResponse(page.reason)
+  return page.value
 }
 
 export async function getOrder(id: string, options: RequestOptions = {}): Promise<OrderDetail> {
   const body = await request(`/orders/${encodeURIComponent(id)}`, { signal: options.signal })
-  if (!isOrderDetail(body)) {
-    throw invalidResponse()
-  }
-  return body
+  const order = parseOrderDetail(body)
+  if (!order.ok) throw invalidResponse(order.reason)
+  return order.value
 }
 
 /**
@@ -114,8 +112,7 @@ export async function updateOrderStatus(
     method: 'PATCH',
     body: JSON.stringify({ status, version: order.version }),
   })
-  if (!isOrderDetail(body)) {
-    throw invalidResponse()
-  }
-  return body
+  const updated = parseOrderDetail(body)
+  if (!updated.ok) throw invalidResponse(updated.reason)
+  return updated.value
 }

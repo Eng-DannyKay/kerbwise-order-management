@@ -68,7 +68,7 @@ describe('getOrders', () => {
       pageSize: '20',
     })
     expect(requestedInit(fetchMock).headers).toMatchObject({ Authorization: 'Bearer test-token' })
-    expect(page).toEqual({ orders: [summary], page: 2, pageSize: 20, total: 148 })
+    expect(page).toEqual({ orders: [summary], rejected: [], page: 2, pageSize: 20, total: 148 })
   })
 
   it('never requests more than 50 orders per page', async () => {
@@ -87,8 +87,18 @@ describe('getOrders', () => {
     expect(requestedUrl(fetchMock).searchParams.has('q')).toBe(false)
   })
 
-  it('rejects a response that does not match the contract', async () => {
-    mockFetch(jsonResponse({ orders: [{ ...summary, status: 'shipped' }], page: 1, pageSize: 20, total: 1 }))
+  it('reports an unreadable order without failing the rest of the page', async () => {
+    const other = { ...summary, id: 'ord_2202', number: 2202 }
+    mockFetch(jsonResponse({ orders: [{ ...summary, status: 'shipped' }, other], page: 1, pageSize: 20, total: 2 }))
+
+    const page = await getOrders()
+
+    expect(page.orders.map((order) => order.number)).toEqual([2202])
+    expect(page.rejected).toEqual([{ id: 'ord_2201', number: 2201, reason: 'unknown status "shipped"' }])
+  })
+
+  it('rejects a response whose page information is missing', async () => {
+    mockFetch(jsonResponse({ orders: [summary] }))
 
     await expect(getOrders()).rejects.toMatchObject({ name: 'ApiError', code: 'invalid_response' })
   })
@@ -141,6 +151,12 @@ describe('updateOrderStatus', () => {
 
     await expect(updateOrderStatus({ ...summary, status }, 'fulfilled')).rejects.toBeInstanceOf(FulfilmentNotAllowedError)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('accepts the response for a fulfilled till order with no customer name', async () => {
+    mockFetch(jsonResponse({ ...detail, customerName: null, phone: null, channel: 'pos', address: null, status: 'fulfilled', version: 2 }))
+
+    await expect(updateOrderStatus(summary, 'fulfilled')).resolves.toMatchObject({ status: 'fulfilled', customerName: null })
   })
 
   it('surfaces a 409 version conflict with its code', async () => {

@@ -18,6 +18,14 @@ const STATUS_STYLES: Record<OrderStatusValue, { className: string; iconPath: str
     className: 'bg-settled-50 text-settled-800',
     iconPath: 'M18 6L6 18M6 6l12 12',
   },
+  on_hold: {
+    className: 'bg-warning-50 text-warning-800',
+    iconPath: 'M9 5v14M15 5v14',
+  },
+  part_refunded: {
+    className: 'bg-settled-50 text-settled-800',
+    iconPath: 'M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3',
+  },
 }
 
 interface OrderStatusProps {
