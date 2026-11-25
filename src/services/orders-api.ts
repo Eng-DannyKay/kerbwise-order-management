@@ -12,47 +12,83 @@ import { parseOrderDetail, parseOrdersPage, readErrorCode } from './order-parser
 
 export const MAX_PAGE_SIZE = 50
 
+/** Longest wait for any request, including reading its body, before giving up. */
+export const REQUEST_TIMEOUT_MS = 15_000
+
 interface RequestOptions {
   signal?: AbortSignal
 }
 
-async function request(path: string, init: RequestInit = {}): Promise<unknown> {
-  let response: Response
-  try {
-    response = await fetch(`${env.apiBaseUrl}${path}`, {
-      ...init,
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${env.apiToken}`,
-        ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-    })
-  } catch (error: unknown) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw error
-    }
-    throw new ApiError('Could not reach the orders service. Check your connection and try again.', null)
-  }
-
-  const body = await readJson(response)
-
-  if (!response.ok) {
-    throw new ApiError(`Request failed with status ${response.status}.`, response.status, readErrorCode(body), body)
-  }
-
-  return body
+interface RequestSettings {
+  method?: 'GET' | 'PATCH'
+  body?: string
+  signal?: AbortSignal
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  const text = await response.text()
-  if (text === '') {
-    return null
-  }
+const NETWORK_MESSAGE = 'Could not reach the orders service. Check your connection and try again.'
+const TIMEOUT_MESSAGE = 'The orders service took too long to respond. Check your connection and try again.'
+
+/**
+ * Turns a failure to send a request or read its response into an `ApiError`. A cancellation by the caller is
+ * passed through unchanged, so callers can ignore it.
+ */
+function transportError(error: unknown, timedOut: boolean, callerSignal: AbortSignal | undefined): unknown {
+  if (!timedOut && callerSignal?.aborted) return error
+  return timedOut ? new ApiError(TIMEOUT_MESSAGE, null, 'timeout') : new ApiError(NETWORK_MESSAGE, null, 'network')
+}
+
+function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
+  if (text === '') return { ok: true, value: null }
   try {
-    const parsed: unknown = JSON.parse(text)
-    return parsed
+    const value: unknown = JSON.parse(text)
+    return { ok: true, value }
   } catch {
-    throw new ApiError('The orders service returned a response that is not valid JSON.', response.status)
+    return { ok: false }
+  }
+}
+
+async function request(path: string, { method = 'GET', body, signal }: RequestSettings = {}): Promise<unknown> {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, REQUEST_TIMEOUT_MS)
+  const forwardAbort = () => controller.abort()
+  if (signal?.aborted) controller.abort()
+  else signal?.addEventListener('abort', forwardAbort, { once: true })
+
+  try {
+    let response: Response
+    let text: string
+    try {
+      response = await fetch(`${env.apiBaseUrl}${path}`, {
+        method,
+        body,
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${env.apiToken}`,
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        },
+      })
+      text = await response.text()
+    } catch (error: unknown) {
+      throw transportError(error, timedOut, signal)
+    }
+
+    const parsed = parseJson(text)
+    if (!response.ok) {
+      const errorBody = parsed.ok ? parsed.value : null
+      throw new ApiError(`Request failed with status ${response.status}.`, response.status, readErrorCode(errorBody), errorBody)
+    }
+    if (!parsed.ok) {
+      throw new ApiError('The orders service sent a response the desk could not read.', response.status, 'invalid_json')
+    }
+    return parsed.value
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', forwardAbort)
   }
 }
 

@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import { ApiError, FulfilmentNotAllowedError } from '../../src/services/api-error'
-import { getOrder, getOrders, updateOrderStatus } from '../../src/services/orders-api'
+import { getOrder, getOrders, REQUEST_TIMEOUT_MS, updateOrderStatus } from '../../src/services/orders-api'
 import type { OrderDetail, OrderSummary } from '../../src/types/order.types'
 
 const summary: OrderSummary = {
@@ -163,5 +163,77 @@ describe('updateOrderStatus', () => {
     mockFetch(jsonResponse({ code: 'stale', current: { ...detail, version: 2 } }, 409))
 
     await expect(updateOrderStatus(summary, 'fulfilled')).rejects.toMatchObject({ status: 409, code: 'stale' })
+  })
+})
+
+describe('request reliability', () => {
+  function hangingFetch() {
+    return jest.spyOn(globalThis, 'fetch').mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+        }),
+    )
+  }
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('gives up with a timeout error when the service never answers', async () => {
+    jest.useFakeTimers()
+    hangingFetch()
+
+    const result = getOrders().catch((caught: unknown) => caught)
+    await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS)
+
+    await expect(result).resolves.toMatchObject({ name: 'ApiError', status: null, code: 'timeout' })
+  })
+
+  it('also times out a fulfilment request instead of leaving it pending', async () => {
+    jest.useFakeTimers()
+    hangingFetch()
+
+    const result = updateOrderStatus(summary, 'fulfilled').catch((caught: unknown) => caught)
+    await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS)
+
+    await expect(result).resolves.toMatchObject({ name: 'ApiError', code: 'timeout' })
+  })
+
+  it('passes a cancellation by the caller through unchanged', async () => {
+    hangingFetch()
+    const controller = new AbortController()
+
+    const result = getOrders({}, { signal: controller.signal }).catch((caught: unknown) => caught)
+    controller.abort()
+
+    await expect(result).resolves.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('treats a connection that drops while reading the body as a network failure', async () => {
+    const brokenBody = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"orders": ['))
+        controller.error(new TypeError('network error'))
+      },
+    })
+    mockFetch(new Response(brokenBody, { status: 200 }))
+
+    const error: unknown = await getOrders().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ status: null, code: 'network', message: expect.stringContaining('Could not reach the orders service') })
+  })
+
+  it('keeps the HTTP status of an error page that is not JSON', async () => {
+    mockFetch(new Response('<html><h1>Bad Gateway</h1></html>', { status: 502, headers: { 'Content-Type': 'text/html' } }))
+
+    await expect(getOrders()).rejects.toMatchObject({ status: 502, code: null })
+  })
+
+  it('flags a successful response whose body cannot be read as JSON', async () => {
+    mockFetch(new Response('{"orders": [', { status: 200 }))
+
+    await expect(getOrders()).rejects.toMatchObject({ status: 200, code: 'invalid_json' })
   })
 })
