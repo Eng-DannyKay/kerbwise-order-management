@@ -6,7 +6,7 @@ import { Button, focusRing } from '../ui/Button'
 import { Drawer } from '../ui/Drawer'
 import { StateMessage } from '../ui/StateMessage'
 import { FulfilmentPanel } from './FulfilmentPanel'
-import { OrderDetails } from './OrderDetails'
+import { OrderDetails, OrderDetailsSkeleton } from './OrderDetails'
 import { OrderStatus } from './OrderStatus'
 
 interface OrderDetailsDrawerProps {
@@ -83,9 +83,7 @@ function OrderPanelContent({ summary, onClose, onOrdersChanged, onFulfilled }: O
         ) : order ? (
           <OrderDetails order={order} />
         ) : (
-          <p role="status" className="py-10 text-center text-muted">
-            Loading order details…
-          </p>
+          <OrderDetailsSkeleton />
         )}
       </div>
 

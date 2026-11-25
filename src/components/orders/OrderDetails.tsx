@@ -1,6 +1,7 @@
 import type { OrderDetail } from '../../types/order.types'
 import { formatCurrency, formatDateTime } from '../../utils/formatters'
 import { displayCustomerName, ORDER_CHANNEL_LABELS } from '../../utils/order-labels'
+import { Skeleton } from '../ui/Skeleton'
 
 interface OrderDetailsProps {
   order: OrderDetail
@@ -98,6 +99,48 @@ export function OrderDetails({ order }: OrderDetailsProps) {
           <p className="text-muted">No note for this order.</p>
         )}
       </section>
+    </div>
+  )
+}
+
+/** Same shape as `OrderDetails`: the four facts, the items box and the address. */
+export function OrderDetailsSkeleton() {
+  return (
+    <div role="status">
+      <span className="sr-only">Loading order details…</span>
+      <div aria-hidden="true" className="flex flex-col gap-6">
+        <div className="grid grid-cols-1 gap-x-5 gap-y-3.5 min-[360px]:grid-cols-2">
+          {['w-28', 'w-36', 'w-20', 'w-16'].map((width) => (
+            <div key={width} className="flex flex-col gap-2 py-0.5">
+              <Skeleton className="h-2.5 w-16" />
+              <Skeleton className={width} />
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-col gap-2">
+          <Skeleton className="w-12" />
+          <div className="overflow-hidden rounded-card border border-line">
+            {['w-36', 'w-28'].map((width) => (
+              <div key={width} className="flex items-center justify-between border-t border-line-soft px-3 py-3.5 first:border-t-0 sm:px-3.5">
+                <div className="flex flex-col gap-2">
+                  <Skeleton className={width} />
+                  <Skeleton className="h-2.5 w-10" />
+                </div>
+                <Skeleton className="w-14" />
+              </div>
+            ))}
+            <div className="flex items-center justify-between border-t border-line bg-surface-subtle px-3 py-3.5 sm:px-3.5">
+              <Skeleton className="h-3.5 w-12" />
+              <Skeleton className="h-3.5 w-16" />
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Skeleton className="w-28" />
+          <Skeleton className="w-40" />
+          <Skeleton className="w-32" />
+        </div>
+      </div>
     </div>
   )
 }
