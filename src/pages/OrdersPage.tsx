@@ -1,13 +1,15 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useOrderQuery, type StatusFilter } from '../hooks/useOrderQuery'
 import { useOrders } from '../hooks/useOrders'
 import { useScanner } from '../hooks/useScanner'
 import type { OrderSummary } from '../types/order.types'
+import type { FulfilmentResult } from '../utils/fulfilment-errors'
 import { describeOrderCount } from '../utils/order-labels'
 import { findOrderToOpen } from '../utils/scan-match'
 import { Button, focusRing } from '../components/ui/Button'
 import { Pagination } from '../components/ui/Pagination'
 import { StateMessage } from '../components/ui/StateMessage'
+import { Toast } from '../components/ui/Toast'
 import { OrderDetailsDrawer } from '../components/orders/OrderDetailsDrawer'
 import { OrderFilters } from '../components/orders/OrderFilters'
 import { OrdersTable, OrdersTableSkeleton } from '../components/orders/OrdersTable'
@@ -15,6 +17,8 @@ import { ListChangedNotice } from '../components/orders/ListChangedNotice'
 import { RejectedOrdersNotice } from '../components/orders/RejectedOrdersNotice'
 
 export const ORDERS_PAGE_SIZE = 20
+
+export const TOAST_DURATION_MS = 8000
 
 function describeResults(total: number, search: string, status: StatusFilter): string {
   const orders = describeOrderCount(total, status)
@@ -35,6 +39,13 @@ export function OrdersPage() {
 
   const [selectedOrder, setSelectedOrder] = useState<OrderSummary | null>(null)
   const [openSingleMatch, setOpenSingleMatch] = useState(false)
+  const [toast, setToast] = useState<FulfilmentResult | null>(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), TOAST_DURATION_MS)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   const lastPage = data ? Math.max(1, Math.ceil(data.total / ORDERS_PAGE_SIZE)) : null
   if (lastPage !== null && page > lastPage) {
@@ -72,6 +83,7 @@ export function OrdersPage() {
   }
 
   const summary = data && !error ? describeResults(data.total, search, status) : null
+  const toastNode = toast && <Toast title={toast.title} detail={toast.detail} onDismiss={() => setToast(null)} />
 
   return (
     <section ref={sectionRef} aria-labelledby="orders-heading" className="flex scroll-mt-4 flex-col gap-4">
@@ -153,7 +165,14 @@ export function OrdersPage() {
         )}
       </div>
 
-      <OrderDetailsDrawer summary={selectedOrder} onClose={() => setSelectedOrder(null)} onOrdersChanged={reload} />
+      <OrderDetailsDrawer
+        summary={selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+        onOrdersChanged={reload}
+        onFulfilled={setToast}
+        toast={selectedOrder && toastNode}
+      />
+      {!selectedOrder && toastNode}
     </section>
   )
 }

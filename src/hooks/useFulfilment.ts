@@ -18,6 +18,7 @@ export type FulfilmentState =
   | { kind: 'submitting' }
   | { kind: 'checking' }
   | { kind: 'blocked' }
+  | { kind: 'fulfilled' }
   | { kind: 'result'; result: FulfilmentResult }
 
 interface FulfilmentCallbacks {
@@ -27,6 +28,8 @@ interface FulfilmentCallbacks {
   onOrdersChanged: () => void
   /** The order has gone; the panel should load it again to show that. */
   onOrderGone: () => void
+  /** The server confirmed the order is fulfilled. */
+  onFulfilled: (result: FulfilmentResult) => void
 }
 
 /**
@@ -52,6 +55,15 @@ export function useFulfilment(order: OrderDetail, callbacks: FulfilmentCallbacks
 
   const update = (next: FulfilmentState) => {
     if (mountedRef.current) setState(next)
+  }
+
+  const finish = (result: FulfilmentResult) => {
+    if (result.tone !== 'success') {
+      update({ kind: 'result', result })
+      return
+    }
+    callbacksRef.current.onFulfilled(result)
+    update({ kind: 'fulfilled' })
   }
 
   async function fetchLatest(): Promise<OrderDetail | null> {
@@ -119,7 +131,7 @@ export function useFulfilment(order: OrderDetail, callbacks: FulfilmentCallbacks
         const updated = await updateOrderStatus(order, 'fulfilled')
         callbacksRef.current.onOrderChange(updated)
         callbacksRef.current.onOrdersChanged()
-        update({ kind: 'result', result: { tone: 'success', title: `Order #${order.number} fulfilled.` } })
+        finish({ tone: 'success', title: `Order #${order.number} fulfilled.` })
         return
       } catch (error: unknown) {
         const classified = classifyFulfilmentFailure(error)
@@ -146,7 +158,7 @@ export function useFulfilment(order: OrderDetail, callbacks: FulfilmentCallbacks
       if (latest) callbacksRef.current.onOrderChange(latest)
       else latest = await fetchLatest()
       callbacksRef.current.onOrdersChanged()
-      update({ kind: 'result', result: describeFulfilmentFailure(failure, order.number, latest) })
+      finish(describeFulfilmentFailure(failure, order.number, latest))
     })
 
   const checkAgain = () =>
@@ -155,7 +167,7 @@ export function useFulfilment(order: OrderDetail, callbacks: FulfilmentCallbacks
       const latest = await fetchLatest()
       if (latest) callbacksRef.current.onOrdersChanged()
       const failure = { kind: 'unknown_outcome', cause: '' } as const
-      update({ kind: 'result', result: describeFulfilmentFailure(failure, order.number, latest) })
+      finish(describeFulfilmentFailure(failure, order.number, latest))
     })
 
   const cancel = () => update({ kind: 'idle' })

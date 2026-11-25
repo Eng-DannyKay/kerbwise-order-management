@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { OrdersPage } from '../../src/pages/OrdersPage'
+import { OrdersPage, TOAST_DURATION_MS } from '../../src/pages/OrdersPage'
 import { ApiError } from '../../src/services/api-error'
 import { getOrder, getOrders, updateOrderStatus } from '../../src/services/orders-api'
 import type { OrderDetail, OrderStatus } from '../../src/types/order.types'
@@ -388,5 +388,61 @@ describe('Fulfilment', () => {
     expect(confirm.open).toBe(true)
     expect(within(confirm).getByRole('button', { name: 'Fulfilling…' })).toBeInTheDocument()
     expect(updateOrderStatusMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Fulfilment toast', () => {
+  it('shows a toast after the API confirms, and moves focus to the fulfilled message', async () => {
+    updateOrderStatusMock.mockResolvedValue(buildDetail('fulfilled', { version: 4 }))
+    const { user, drawer } = await openOrder('paid')
+
+    await confirmFulfilment(user, drawer)
+
+    expect(await within(drawer).findByRole('status')).toHaveTextContent('Order #2265 fulfilled.')
+    expect(within(drawer).getByText('This order has been fulfilled.')).toHaveFocus()
+  })
+
+  it('keeps the toast on the page after the panel closes, until it is dismissed', async () => {
+    updateOrderStatusMock.mockResolvedValue(buildDetail('fulfilled', { version: 4 }))
+    const { user, drawer } = await openOrder('paid')
+    await confirmFulfilment(user, drawer)
+    await within(drawer).findByText('Order #2265 fulfilled.')
+
+    await user.click(within(drawer).getByRole('button', { name: 'Close order details' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('status', { name: '' })).toHaveTextContent('Order #2265 fulfilled.')
+    await user.click(screen.getByRole('button', { name: 'Dismiss message' }))
+    expect(screen.queryByText('Order #2265 fulfilled.')).not.toBeInTheDocument()
+  })
+
+  it('hides the toast on its own after a few seconds', async () => {
+    const request = deferred<OrderDetail>()
+    updateOrderStatusMock.mockReturnValue(request.promise)
+    const { user, drawer } = await openOrder('paid')
+    await confirmFulfilment(user, drawer)
+
+    jest.useFakeTimers()
+    try {
+      await act(async () => request.resolve(buildDetail('fulfilled', { version: 4 })))
+      expect(within(drawer).getByText('Order #2265 fulfilled.')).toBeInTheDocument()
+
+      act(() => jest.advanceTimersByTime(TOAST_DURATION_MS - 1))
+      expect(within(drawer).getByText('Order #2265 fulfilled.')).toBeInTheDocument()
+      act(() => jest.advanceTimersByTime(1))
+      expect(screen.queryByText('Order #2265 fulfilled.')).not.toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('shows failures in the panel, not as a toast', async () => {
+    updateOrderStatusMock.mockRejectedValue(new ApiError('Request failed with status 429.', 429, null))
+    const { user, drawer } = await openOrder('paid')
+
+    await confirmFulfilment(user, drawer)
+
+    expect(await within(drawer).findByText('Order #2265 was not fulfilled')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Dismiss message' })).not.toBeInTheDocument()
   })
 })

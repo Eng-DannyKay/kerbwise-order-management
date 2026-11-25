@@ -16,6 +16,8 @@ interface FulfilmentPanelProps {
   onReload: () => void
   /** Refreshes the orders list after the server reports a change. */
   onOrdersChanged: () => void
+  /** Shows the confirmed fulfilment as a toast. */
+  onFulfilled: (result: FulfilmentResult) => void
 }
 
 const RESULT_STYLES: Record<FulfilmentResult['tone'], string> = {
@@ -46,19 +48,25 @@ function LockIcon() {
  * The status shown only ever changes after the API confirms it. Unpaid orders are
  * blocked here and again in `updateOrderStatus`.
  */
-export function FulfilmentPanel({ order, onOrderChange, onReload, onOrdersChanged }: FulfilmentPanelProps) {
+export function FulfilmentPanel({ order, onOrderChange, onReload, onOrdersChanged, onFulfilled }: FulfilmentPanelProps) {
   const { state, start, confirm, checkAgain, cancel } = useFulfilment(order, {
     onOrderChange,
     onOrdersChanged,
     onOrderGone: onReload,
+    onFulfilled,
   })
   const resultRef = useRef<HTMLDivElement>(null)
+  const fulfilledRef = useRef<HTMLParagraphElement>(null)
   const reasonId = useId()
   const result = state.kind === 'result' ? state.result : null
 
   useEffect(() => {
     if (result) resultRef.current?.focus()
   }, [result])
+
+  useEffect(() => {
+    if (state.kind === 'fulfilled') fulfilledRef.current?.focus()
+  }, [state.kind])
 
   const isBusy = state.kind === 'refreshing' || state.kind === 'checking'
 
@@ -118,7 +126,11 @@ export function FulfilmentPanel({ order, onOrderChange, onReload, onOrdersChange
         </>
       )}
 
-      {!result && order.status === 'fulfilled' && <p className="font-semibold">This order has been fulfilled.</p>}
+      {!result && order.status === 'fulfilled' && (
+        <p ref={fulfilledRef} tabIndex={-1} className="font-semibold focus:outline-none">
+          This order has been fulfilled.
+        </p>
+      )}
       {!result && order.status === 'cancelled' && <p className="text-muted">Cancelled orders can’t be fulfilled.</p>}
       {!result && order.status === 'on_hold' && <p className="text-muted">This order is on hold, so it can’t be fulfilled.</p>}
       {!result && order.status === 'part_refunded' && (
