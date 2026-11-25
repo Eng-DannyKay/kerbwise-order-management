@@ -8,7 +8,7 @@ Please don't trust the packing slips yet. Totals are wrong when an item is order
 
 For the 2:30pm session: don't put printed slips in bags, discard duplicates, and pass notes on in person.
 
-We've requested changes and will verify them against real orders before recommending the slips for use again. I'll update you once that check is complete.
+We've requested changes and will verify them against real orders before recommending the slips for use again. I'll update you once it's done.
 
 Best regards,
 Daniel
