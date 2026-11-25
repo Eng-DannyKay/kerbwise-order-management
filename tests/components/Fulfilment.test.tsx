@@ -281,7 +281,7 @@ describe('Fulfilment', () => {
     await confirmFulfilment(user, drawer)
     const detailCalls = getOrderMock.mock.calls.length
 
-    expect(await within(drawer).findByRole('alert')).toHaveTextContent('asked the desk to slow down. Nothing changed.')
+    expect(await within(drawer).findByRole('alert')).toHaveTextContent('The orders service is busy right now. Nothing changed.')
     expect(getOrderMock.mock.calls.length).toBe(detailCalls)
     expect(within(drawer).getByRole('button', { name: 'Mark as fulfilled' })).toBeInTheDocument()
     expect(updateOrderStatusMock).toHaveBeenCalledTimes(1)

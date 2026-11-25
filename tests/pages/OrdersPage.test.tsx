@@ -122,7 +122,7 @@ describe('OrdersPage', () => {
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Unable to load orders')
-    expect(alert).toHaveTextContent('Too many requests. Wait a moment and try again.')
+    expect(alert).toHaveTextContent('The orders service is busy right now.')
 
     await user.click(within(alert).getByRole('button', { name: 'Try again' }))
 

@@ -26,8 +26,8 @@ interface RequestSettings {
   signal?: AbortSignal
 }
 
-const NETWORK_MESSAGE = 'Could not reach the orders service. Check your connection and try again.'
-const TIMEOUT_MESSAGE = 'The orders service took too long to respond. Check your connection and try again.'
+const NETWORK_MESSAGE = 'Could not reach the orders service. Check the internet connection.'
+const TIMEOUT_MESSAGE = 'The orders service took too long to answer.'
 
 /**
  * Turns a failure to send a request or read its response into an `ApiError`. A cancellation by the caller is
@@ -90,7 +90,7 @@ async function request(path: string, { method = 'GET', body, signal }: RequestSe
       )
     }
     if (!parsed.ok) {
-      throw new ApiError('The orders service sent a response the desk could not read.', response.status, 'invalid_json')
+      throw new ApiError('The orders service sent a reply the desk couldn’t read.', response.status, 'invalid_json')
     }
     return parsed.value
   } finally {
@@ -140,7 +140,7 @@ async function read(path: string, signal: AbortSignal | undefined): Promise<unkn
 }
 
 function invalidResponse(reason: string): ApiError {
-  return new ApiError('The orders service returned data in an unexpected format.', null, 'invalid_response', { reason })
+  return new ApiError('The orders service sent order details the desk couldn’t read.', null, 'invalid_response', { reason })
 }
 
 function clampPageSize(pageSize: number): number {

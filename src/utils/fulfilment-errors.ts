@@ -58,7 +58,7 @@ export function describeFulfilmentFailure(
     return {
       tone: 'danger',
       title: `${name} was not fulfilled`,
-      detail: 'The orders service is busy and asked the desk to slow down. Nothing changed. Wait a moment, then try again.',
+      detail: 'The orders service is busy right now. Nothing changed. Wait a moment, then try again.',
     }
   }
 

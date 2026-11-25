@@ -3,7 +3,7 @@ import { useOrderQuery, type StatusFilter } from '../hooks/useOrderQuery'
 import { useOrders } from '../hooks/useOrders'
 import { useScanner } from '../hooks/useScanner'
 import type { OrderSummary } from '../types/order.types'
-import { ORDER_STATUS_LABELS } from '../utils/order-labels'
+import { describeOrderCount } from '../utils/order-labels'
 import { findOrderToOpen } from '../utils/scan-match'
 import { Button, focusRing } from '../components/ui/Button'
 import { Pagination } from '../components/ui/Pagination'
@@ -17,15 +17,14 @@ import { RejectedOrdersNotice } from '../components/orders/RejectedOrdersNotice'
 export const ORDERS_PAGE_SIZE = 20
 
 function describeResults(total: number, search: string, status: StatusFilter): string {
-  const statusPart = status === 'all' ? '' : `${ORDER_STATUS_LABELS[status].toLowerCase()} `
-  const orders = `${total} ${statusPart}${total === 1 ? 'order' : 'orders'}`
+  const orders = describeOrderCount(total, status)
   if (!search) return orders
   return `${orders} ${total === 1 ? 'matches' : 'match'} “${search}”`
 }
 
 function describeNoResults(search: string, status: StatusFilter): string {
   if (search) return `No orders match “${search}”`
-  return status === 'all' ? 'No orders yet' : `No ${ORDER_STATUS_LABELS[status].toLowerCase()} orders`
+  return status === 'all' ? 'No orders yet' : describeOrderCount(0, status).replace(/^0/, 'No')
 }
 
 export function OrdersPage() {
@@ -123,7 +122,7 @@ export function OrdersPage() {
             <StateMessage
               tone="danger"
               title="Unable to load orders"
-              description={`${error} No orders were changed.`}
+              description={error}
               action={
                 <Button variant="primary" onClick={reload}>
                   Try again
