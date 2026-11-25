@@ -103,3 +103,39 @@ describe('Orders page with real-world data', () => {
     expect(getOrdersMock).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'on_hold', page: 1 }), expect.anything())
   })
 })
+
+describe('search focus on page load', () => {
+  const originalMatchMedia = window.matchMedia
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+  })
+
+  function pointer(precise: boolean) {
+    window.matchMedia = jest.fn().mockImplementation((query: string) => ({
+      matches: precise && query.includes('pointer: fine'),
+      media: query,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+    }))
+  }
+
+  it('focuses the search box for the scanner on a mouse or trackpad device', async () => {
+    pointer(true)
+    getOrdersMock.mockResolvedValue(buildPage([buildOrder()]))
+
+    render(<OrdersPage />)
+
+    expect(screen.getByLabelText('Search orders')).toHaveFocus()
+  })
+
+  it('does not focus it on a touch screen, where it would open the keyboard over the list', async () => {
+    pointer(false)
+    getOrdersMock.mockResolvedValue(buildPage([buildOrder()]))
+
+    render(<OrdersPage />)
+    await screen.findByRole('table')
+
+    expect(screen.getByLabelText('Search orders')).not.toHaveFocus()
+  })
+})
