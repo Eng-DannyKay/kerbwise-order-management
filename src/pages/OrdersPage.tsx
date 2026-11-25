@@ -82,7 +82,7 @@ export function OrdersPage() {
     }
   }
 
-  const summary = data && !error ? describeResults(data.total, search, status) : null
+  const summary = data && !error && !isLoading ? describeResults(data.total, search, status) : null
   const toastNode = toast && <Toast title={toast.title} detail={toast.detail} onDismiss={() => setToast(null)} />
 
   return (
