@@ -80,7 +80,13 @@ async function request(path: string, { method = 'GET', body, signal }: RequestSe
     const parsed = parseJson(text)
     if (!response.ok) {
       const errorBody = parsed.ok ? parsed.value : null
-      throw new ApiError(`Request failed with status ${response.status}.`, response.status, readErrorCode(errorBody), errorBody)
+      throw new ApiError(
+        `Request failed with status ${response.status}.`,
+        response.status,
+        readErrorCode(errorBody),
+        errorBody,
+        parseRetryAfter(response.headers.get('Retry-After')),
+      )
     }
     if (!parsed.ok) {
       throw new ApiError('The orders service sent a response the desk could not read.', response.status, 'invalid_json')
@@ -89,6 +95,46 @@ async function request(path: string, { method = 'GET', body, signal }: RequestSe
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', forwardAbort)
+  }
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value.trim())) return null
+  return Number(value.trim())
+}
+
+/** Waits used when the server answers 429 without a usable `Retry-After`. */
+const DEFAULT_RETRY_AFTER_SECONDS = 2
+/** Longer requested waits are reported to staff instead of retried silently. */
+export const MAX_RETRY_AFTER_SECONDS = 10
+/** Spreads retries so desks limited at the same moment do not all retry at once. */
+const RETRY_JITTER_MS = 500
+
+function wait(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException('The operation was aborted.', 'AbortError'))
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    function onAbort() {
+      clearTimeout(timer)
+      reject(new DOMException('The operation was aborted.', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** A read request that is retried once after the server's `Retry-After` when rate-limited. Never used for changes. */
+async function read(path: string, signal: AbortSignal | undefined): Promise<unknown> {
+  try {
+    return await request(path, { signal })
+  } catch (error: unknown) {
+    if (!(error instanceof ApiError) || error.status !== 429) throw error
+    const seconds = error.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS
+    if (seconds > MAX_RETRY_AFTER_SECONDS) throw error
+    await wait(seconds * 1000 + Math.random() * RETRY_JITTER_MS, signal)
+    return request(path, { signal })
   }
 }
 
@@ -117,14 +163,14 @@ function buildOrdersSearch(query: OrdersQuery): string {
 
 /** `pageSize` is capped at {@link MAX_PAGE_SIZE}. */
 export async function getOrders(query: OrdersQuery = {}, options: RequestOptions = {}): Promise<OrdersPage> {
-  const body = await request(`/orders${buildOrdersSearch(query)}`, { signal: options.signal })
+  const body = await read(`/orders${buildOrdersSearch(query)}`, options.signal)
   const page = parseOrdersPage(body)
   if (!page.ok) throw invalidResponse(page.reason)
   return page.value
 }
 
 export async function getOrder(id: string, options: RequestOptions = {}): Promise<OrderDetail> {
-  const body = await request(`/orders/${encodeURIComponent(id)}`, { signal: options.signal })
+  const body = await read(`/orders/${encodeURIComponent(id)}`, options.signal)
   const order = parseOrderDetail(body)
   if (!order.ok) throw invalidResponse(order.reason)
   return order.value
@@ -152,3 +198,4 @@ export async function updateOrderStatus(
   if (!updated.ok) throw invalidResponse(updated.reason)
   return updated.value
 }
+

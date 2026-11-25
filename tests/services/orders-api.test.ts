@@ -237,3 +237,67 @@ describe('request reliability', () => {
     await expect(getOrders()).rejects.toMatchObject({ status: 200, code: 'invalid_json' })
   })
 })
+
+describe('rate limiting', () => {
+  function limited(retryAfter: string | null = '1') {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (retryAfter !== null) headers['Retry-After'] = retryAfter
+    return new Response(JSON.stringify({ code: 'slow_down' }), { status: 429, headers })
+  }
+  const okPage = () => jsonResponse({ orders: [summary], page: 1, pageSize: 20, total: 1 })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('retries a read once after the Retry-After wait', async () => {
+    jest.useFakeTimers()
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(limited('1')).mockResolvedValueOnce(okPage())
+
+    const result = getOrders()
+    await jest.advanceTimersByTimeAsync(999)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await jest.advanceTimersByTimeAsync(501)
+
+    await expect(result).resolves.toMatchObject({ total: 1 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries at most once', async () => {
+    jest.useFakeTimers()
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(limited()).mockResolvedValueOnce(limited()).mockResolvedValue(okPage())
+
+    const result = getOrder('ord_2201').catch((caught: unknown) => caught)
+    await jest.advanceTimersByTimeAsync(5000)
+
+    await expect(result).resolves.toMatchObject({ status: 429, code: 'slow_down', retryAfterSeconds: 1 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not wait silently when the server asks for a long pause', async () => {
+    const fetchMock = mockFetch(limited('30'))
+
+    await expect(getOrders()).rejects.toMatchObject({ status: 429, retryAfterSeconds: 30 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('never retries a fulfilment', async () => {
+    const fetchMock = mockFetch(limited('1'))
+
+    await expect(updateOrderStatus(summary, 'fulfilled')).rejects.toMatchObject({ status: 429 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops waiting when the request is cancelled', async () => {
+    const fetchMock = mockFetch(limited('5'))
+    const controller = new AbortController()
+
+    const result = getOrders({}, { signal: controller.signal }).catch((caught: unknown) => caught)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    controller.abort()
+
+    await expect(result).resolves.toMatchObject({ name: 'AbortError' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
