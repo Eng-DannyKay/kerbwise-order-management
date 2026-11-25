@@ -89,3 +89,13 @@ export function isOrdersPage(value: unknown): value is OrdersPage {
 export function readErrorCode(body: unknown): string | null {
   return isRecord(body) && isString(body.code) ? body.code : null
 }
+
+/** The latest order sent with a 409 `stale` response, if it is valid. */
+export function readConflictOrder(body: unknown): OrderDetail | null {
+  return isRecord(body) && isOrderDetail(body.current) ? body.current : null
+}
+
+/** The status an order was in when a 409 `invalid_transition` was returned. */
+export function readTransitionFrom(body: unknown): OrderStatus | null {
+  return isRecord(body) && isOrderStatus(body.from) ? body.from : null
+}
