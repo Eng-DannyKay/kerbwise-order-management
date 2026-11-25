@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react'
 import { useOrderQuery, type StatusFilter } from '../hooks/useOrderQuery'
 import { useOrders } from '../hooks/useOrders'
+import { useScanner } from '../hooks/useScanner'
 import type { OrderSummary } from '../types/order.types'
 import { ORDER_STATUS_LABELS } from '../utils/order-labels'
+import { findOrderToOpen } from '../utils/scan-match'
 import { Button, focusRing } from '../components/ui/Button'
 import { Pagination } from '../components/ui/Pagination'
 import { StateMessage } from '../components/ui/StateMessage'
@@ -42,14 +44,20 @@ export function OrdersPage() {
 
   if (openSingleMatch && !isLoading) {
     setOpenSingleMatch(false)
-    const onlyMatch = !error && data?.total === 1 ? data.orders[0] : undefined
-    if (onlyMatch) setSelectedOrder(onlyMatch)
+    const match = !error && data ? findOrderToOpen(search, data) : undefined
+    if (match) setSelectedOrder(match)
   }
 
   function submitSearch() {
     orderQuery.submitSearch()
-    setOpenSingleMatch(true)
+    setOpenSingleMatch(orderQuery.searchText.trim() !== '')
   }
+
+  useScanner((term) => {
+    setSelectedOrder(null)
+    orderQuery.searchFor(term)
+    setOpenSingleMatch(true)
+  })
 
   function refreshList() {
     setPage(1)
