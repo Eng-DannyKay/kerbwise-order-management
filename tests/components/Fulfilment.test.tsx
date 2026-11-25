@@ -46,7 +46,7 @@ async function openOrder(status: OrderStatus) {
 
 async function confirmFulfilment(user: ReturnType<typeof userEvent.setup>, drawer: HTMLElement) {
   await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
-  const confirm = screen.getByRole('alertdialog', { name: 'Mark order #2265 as fulfilled?' })
+  const confirm = await screen.findByRole('alertdialog', { name: 'Mark order #2265 as fulfilled?' })
   await user.click(within(confirm).getByRole('button', { name: 'Confirm fulfilment' }))
   return confirm
 }
@@ -138,7 +138,7 @@ describe('Fulfilment', () => {
 
     await confirmFulfilment(user, drawer)
 
-    expect(await within(drawer).findByRole('alert')).toHaveTextContent('Order #2265 was already fulfilled by someone else.')
+    expect(await within(drawer).findByText('Order #2265 was already fulfilled by someone else')).toBeInTheDocument()
     expect(statusIn(drawer)).toContain('Fulfilled')
     expect(within(drawer).queryByRole('button', { name: 'Mark as fulfilled' })).not.toBeInTheDocument()
   })
@@ -152,48 +152,155 @@ describe('Fulfilment', () => {
     const { user, drawer } = await openOrder('paid')
 
     await confirmFulfilment(user, drawer)
-    expect(await within(drawer).findByRole('alert')).toHaveTextContent('Someone else changed order #2265')
+    expect(await within(drawer).findByText('Someone else changed Order #2265 while you had it open')).toBeInTheDocument()
 
+    getOrderMock.mockResolvedValue(buildDetail('paid', { version: 5 }))
     await confirmFulfilment(user, drawer)
 
     expect(updateOrderStatusMock).toHaveBeenLastCalledWith(expect.objectContaining({ version: 5 }), 'fulfilled')
-    expect(await within(drawer).findByRole('status')).toHaveTextContent('Order #2265 fulfilled.')
+    expect(await within(drawer).findByText('Order #2265 fulfilled.')).toBeInTheDocument()
+  })
+
+  it('checks the latest status before opening the confirmation', async () => {
+    const { user, drawer } = await openOrder('paid')
+    getOrderMock.mockResolvedValue(buildDetail('paid', { version: 7 }))
+    updateOrderStatusMock.mockResolvedValue(buildDetail('fulfilled', { version: 8 }))
+    const detailCalls = getOrderMock.mock.calls.length
+
+    await confirmFulfilment(user, drawer)
+
+    expect(getOrderMock.mock.calls.length).toBe(detailCalls + 1)
+    expect(updateOrderStatusMock).toHaveBeenCalledWith(expect.objectContaining({ version: 7 }), 'fulfilled')
+  })
+
+  it('does not open the confirmation when the order changed since it was opened', async () => {
+    const { user, drawer } = await openOrder('paid')
+    getOrderMock.mockResolvedValue(buildDetail('cancelled', { version: 4 }))
+    const listCalls = getOrdersMock.mock.calls.length
+
+    await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
+
+    expect(await within(drawer).findByText('Order #2265 can’t be fulfilled')).toBeInTheDocument()
+    expect(within(drawer).getByText('It is now cancelled.')).toBeInTheDocument()
+    expect(statusIn(drawer)).toContain('Cancelled')
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(updateOrderStatusMock).not.toHaveBeenCalled()
+    await waitFor(() => expect(getOrdersMock.mock.calls.length).toBeGreaterThan(listCalls))
+  })
+
+  it('does not open the confirmation when the latest status cannot be checked', async () => {
+    const { user, drawer } = await openOrder('paid')
+    getOrderMock.mockRejectedValue(new ApiError('The orders service took too long to respond.', null, 'timeout'))
+
+    await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
+
+    expect(await within(drawer).findByRole('alert')).toHaveTextContent('Couldn’t check the latest status of order #2265')
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(updateOrderStatusMock).not.toHaveBeenCalled()
   })
 
   it.each([
-    [
-      '422',
-      new ApiError('Request failed with status 422.', 422, 'invalid_status'),
-      'The server rejected this change, so order #2265 was not fulfilled.',
-    ],
-    [
-      'network failure',
-      new ApiError('Could not reach the orders service.', null),
-      'We couldn’t confirm whether order #2265 was fulfilled.',
-    ],
-    ['409 invalid transition', new ApiError('Request failed with status 409.', 409, 'invalid_transition', { code: 'invalid_transition', from: 'new' }), 'Order #2265 can’t be fulfilled because it is new.'],
-  ])('keeps the status and reloads the order after a %s', async (_label, error, message) => {
+    ['network failure', new ApiError('Could not reach the orders service.', null, 'network')],
+    ['timeout', new ApiError('The orders service took too long to respond.', null, 'timeout')],
+    ['HTML 502', new ApiError('Request failed with status 502.', 502, null)],
+    ['unreadable reply', new ApiError('The orders service sent a response the desk could not read.', 200, 'invalid_json')],
+  ])('reports success, not failure, when a %s hid a fulfilment the server applied', async (_label, error) => {
     updateOrderStatusMock.mockRejectedValue(error)
     const { user, drawer } = await openOrder('paid')
-    const detailCallsBefore = getOrderMock.mock.calls.length
+    await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
+    const confirm = await screen.findByRole('alertdialog')
+    getOrderMock.mockResolvedValue(buildDetail('fulfilled', { version: 4 }))
 
-    await confirmFulfilment(user, drawer)
+    await user.click(within(confirm).getByRole('button', { name: 'Confirm fulfilment' }))
 
-    expect(await within(drawer).findByRole('alert')).toHaveTextContent(message)
-    expect(statusIn(drawer)).toContain('Paid')
-    await waitFor(() => expect(getOrderMock.mock.calls.length).toBeGreaterThan(detailCallsBefore))
+    expect(await within(drawer).findByText('Order #2265 is fulfilled')).toBeInTheDocument()
+    expect(statusIn(drawer)).toContain('Fulfilled')
+    expect(within(drawer).queryByText(/not fulfilled/)).not.toBeInTheDocument()
   })
 
-  it('does not reload or change anything after a 429', async () => {
-    updateOrderStatusMock.mockRejectedValue(new ApiError('Request failed with status 429.', 429, null))
+  it('says nothing changed when the order is still paid after an unknown outcome', async () => {
+    updateOrderStatusMock.mockRejectedValue(new ApiError('Could not reach the orders service.', null, 'network'))
     const { user, drawer } = await openOrder('paid')
-    const detailCallsBefore = getOrderMock.mock.calls.length
 
     await confirmFulfilment(user, drawer)
 
-    expect(await within(drawer).findByRole('alert')).toHaveTextContent('Too many requests. Nothing was changed.')
-    expect(getOrderMock.mock.calls.length).toBe(detailCallsBefore)
+    const alert = await within(drawer).findByRole('alert')
+    expect(alert).toHaveTextContent('Order #2265 was not fulfilled')
+    expect(alert).toHaveTextContent('Nothing changed, so you can try again.')
+    expect(statusIn(drawer)).toContain('Paid')
+    expect(updateOrderStatusMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers to check again when an unknown outcome cannot be confirmed', async () => {
+    updateOrderStatusMock.mockRejectedValue(new ApiError('The orders service took too long to respond.', null, 'timeout'))
+    const { user, drawer } = await openOrder('paid')
+    await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
+    const confirm = await screen.findByRole('alertdialog')
+    getOrderMock.mockRejectedValue(new ApiError('Could not reach the orders service.', null, 'network'))
+
+    await user.click(within(confirm).getByRole('button', { name: 'Confirm fulfilment' }))
+
+    const alert = await within(drawer).findByRole('alert')
+    expect(alert).toHaveTextContent('We couldn’t confirm whether Order #2265 was fulfilled')
+    expect(statusIn(drawer)).toContain('Paid')
+
+    getOrderMock.mockResolvedValue(buildDetail('fulfilled', { version: 4 }))
+    await user.click(within(alert).getByRole('button', { name: 'Check again' }))
+
+    expect(await within(drawer).findByText('Order #2265 is fulfilled')).toBeInTheDocument()
+    expect(statusIn(drawer)).toContain('Fulfilled')
+    expect(updateOrderStatusMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['422', new ApiError('Request failed with status 422.', 422, 'invalid_status'), 'paid', 'The orders service refused the change.', 'Paid'],
+    [
+      '409 invalid transition',
+      new ApiError('Request failed with status 409.', 409, 'invalid_transition', { code: 'invalid_transition', from: 'on_hold' }),
+      'on_hold',
+      'It is now on hold.',
+      'On hold',
+    ],
+  ] as const)('describes a %s using the confirmed status', async (_label, error, latestStatus, detail, badge) => {
+    updateOrderStatusMock.mockRejectedValue(error)
+    const { user, drawer } = await openOrder('paid')
+    await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
+    const confirm = await screen.findByRole('alertdialog')
+    getOrderMock.mockResolvedValue(buildDetail(latestStatus))
+
+    await user.click(within(confirm).getByRole('button', { name: 'Confirm fulfilment' }))
+
+    expect(await within(drawer).findByText(detail, { exact: false })).toBeInTheDocument()
+    expect(statusIn(drawer)).toContain(badge)
+  })
+
+  it('does not fetch or change anything after a 429', async () => {
+    updateOrderStatusMock.mockRejectedValue(new ApiError('Request failed with status 429.', 429, 'slow_down'))
+    const { user, drawer } = await openOrder('paid')
+
+    await confirmFulfilment(user, drawer)
+    const detailCalls = getOrderMock.mock.calls.length
+
+    expect(await within(drawer).findByRole('alert')).toHaveTextContent('The orders service is busy right now. Nothing changed.')
+    expect(getOrderMock.mock.calls.length).toBe(detailCalls)
     expect(within(drawer).getByRole('button', { name: 'Mark as fulfilled' })).toBeInTheDocument()
+    expect(updateOrderStatusMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes the actions and refreshes the list when the order no longer exists', async () => {
+    updateOrderStatusMock.mockRejectedValue(new ApiError('Request failed with status 404.', 404, 'not_found'))
+    const { user, drawer } = await openOrder('paid')
+    const listCalls = getOrdersMock.mock.calls.length
+    await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
+    const confirm = await screen.findByRole('alertdialog')
+    getOrderMock.mockRejectedValue(new ApiError('Request failed with status 404.', 404, 'not_found'))
+
+    await user.click(within(confirm).getByRole('button', { name: 'Confirm fulfilment' }))
+
+    await waitFor(() => expect(within(drawer).queryByRole('button', { name: 'Mark as fulfilled' })).not.toBeInTheDocument())
+    expect(within(drawer).getByText('Order #2265 no longer exists')).toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+    await waitFor(() => expect(getOrdersMock.mock.calls.length).toBeGreaterThan(listCalls))
   })
 
   it('fetches the order again when it is reopened, instead of showing the old copy', async () => {
@@ -214,35 +321,35 @@ describe('Fulfilment', () => {
     expect(statusIn(reopened)).toContain('Fulfilled')
   })
 
-  it('keeps a confirmed fulfilment when an older reload arrives afterwards', async () => {
-    const staleReload = deferred<OrderDetail>()
-    updateOrderStatusMock
-      .mockRejectedValueOnce(new ApiError('Request failed with status 422.', 422, 'invalid_status'))
-      .mockResolvedValueOnce(buildDetail('fulfilled', { version: 4 }))
+  it('cannot start another fulfilment while the result is still being checked', async () => {
+    const check = deferred<OrderDetail>()
+    updateOrderStatusMock.mockRejectedValue(new ApiError('Request failed with status 502.', 502, null))
     const { user, drawer } = await openOrder('paid')
-    getOrderMock.mockReturnValueOnce(staleReload.promise)
+    await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
+    const confirm = await screen.findByRole('alertdialog')
+    getOrderMock.mockReturnValueOnce(check.promise)
+    await user.click(within(confirm).getByRole('button', { name: 'Confirm fulfilment' }))
 
-    await confirmFulfilment(user, drawer)
-    await within(drawer).findByRole('alert')
-    await confirmFulfilment(user, drawer)
-    expect(await within(drawer).findByRole('status')).toHaveTextContent('Order #2265 fulfilled.')
+    expect(await within(drawer).findByText('Checking the latest status of order #2265…')).toBeInTheDocument()
+    await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
+    expect(screen.queryByRole('alertdialog', { name: /Mark order/ })).not.toBeInTheDocument()
 
-    await act(async () => staleReload.resolve(buildDetail('paid', { version: 3 })))
+    await act(async () => check.resolve(buildDetail('fulfilled', { version: 4 })))
 
-    expect(statusIn(drawer)).toContain('Fulfilled')
-    expect(within(drawer).queryByRole('button', { name: 'Mark as fulfilled' })).not.toBeInTheDocument()
+    expect(await within(drawer).findByText('Order #2265 is fulfilled')).toBeInTheDocument()
+    expect(updateOrderStatusMock).toHaveBeenCalledTimes(1)
   })
 
   it('can open the confirmation again after the browser closes it on its own', async () => {
     const { user, drawer } = await openOrder('paid')
     await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
-    const confirm = screen.getByRole('alertdialog') as HTMLDialogElement
+    const confirm = (await screen.findByRole('alertdialog')) as HTMLDialogElement
 
     act(() => confirm.close())
 
     expect(screen.queryByRole('alertdialog', { name: /Mark order/ })).not.toBeInTheDocument()
     await user.click(within(drawer).getByRole('button', { name: 'Mark as fulfilled' }))
-    expect(screen.getByRole('alertdialog', { name: 'Mark order #2265 as fulfilled?' })).toBeInTheDocument()
+    expect(await screen.findByRole('alertdialog', { name: 'Mark order #2265 as fulfilled?' })).toBeInTheDocument()
     expect(updateOrderStatusMock).not.toHaveBeenCalled()
   })
 
@@ -260,9 +367,9 @@ describe('Fulfilment', () => {
     await within(reopened).findByRole('table', { name: 'Items in order #2265' })
 
     await user.click(within(reopened).getByRole('button', { name: 'Mark as fulfilled' }))
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }))
     await user.click(within(reopened).getByRole('button', { name: 'Mark as fulfilled' }))
-    const confirm = screen.getByRole('alertdialog') as HTMLDialogElement
+    const confirm = (await screen.findByRole('alertdialog')) as HTMLDialogElement
 
     act(() => {
       confirm.dispatchEvent(new Event('close'))

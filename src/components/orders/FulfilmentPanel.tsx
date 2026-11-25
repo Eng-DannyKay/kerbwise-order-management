@@ -1,28 +1,27 @@
-import { useEffect, useId, useRef, useState } from 'react'
-import { updateOrderStatus } from '../../services/orders-api'
+import { useEffect, useId, useRef } from 'react'
+import { useFulfilment } from '../../hooks/useFulfilment'
 import type { OrderDetail } from '../../types/order.types'
 import { formatCurrency } from '../../utils/formatters'
-import { describeFulfilmentFailure } from '../../utils/fulfilment-errors'
+import type { FulfilmentResult } from '../../utils/fulfilment-errors'
+import { displayCustomerName } from '../../utils/order-labels'
 import { canFulfilOrder } from '../../utils/order-rules'
 import { Button } from '../ui/Button'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
-
-type PanelState =
-  | { kind: 'idle' }
-  | { kind: 'confirming' }
-  | { kind: 'submitting' }
-  | { kind: 'succeeded' }
-  | { kind: 'failed'; message: string }
-  | { kind: 'blocked' }
 
 interface FulfilmentPanelProps {
   order: OrderDetail
   /** Replaces the shown order with the server's copy. */
   onOrderChange: (order: OrderDetail) => void
-  /** Fetches the order again when its real state is unknown. */
+  /** Reloads the order, used when the server reports it has gone. */
   onReload: () => void
   /** Refreshes the orders list after the server reports a change. */
   onOrdersChanged: () => void
+}
+
+const RESULT_STYLES: Record<FulfilmentResult['tone'], string> = {
+  success: 'bg-brand-50 text-brand-700',
+  info: 'border border-line bg-surface-subtle text-ink',
+  danger: 'border border-danger-700/30 bg-danger-50 text-danger-700',
 }
 
 function LockIcon() {
@@ -48,49 +47,56 @@ function LockIcon() {
  * blocked here and again in `updateOrderStatus`.
  */
 export function FulfilmentPanel({ order, onOrderChange, onReload, onOrdersChanged }: FulfilmentPanelProps) {
-  const [state, setState] = useState<PanelState>({ kind: 'idle' })
-  const successRef = useRef<HTMLParagraphElement>(null)
-  const isSubmittingRef = useRef(false)
+  const { state, start, confirm, checkAgain, cancel } = useFulfilment(order, {
+    onOrderChange,
+    onOrdersChanged,
+    onOrderGone: onReload,
+  })
+  const resultRef = useRef<HTMLDivElement>(null)
   const reasonId = useId()
+  const result = state.kind === 'result' ? state.result : null
 
   useEffect(() => {
-    if (state.kind === 'succeeded') successRef.current?.focus()
-  }, [state.kind])
+    if (result) resultRef.current?.focus()
+  }, [result])
 
-  async function fulfil() {
-    if (isSubmittingRef.current) return
-    isSubmittingRef.current = true
-    setState({ kind: 'submitting' })
-    try {
-      const updated = await updateOrderStatus(order, 'fulfilled')
-      onOrderChange(updated)
-      onOrdersChanged()
-      setState({ kind: 'succeeded' })
-    } catch (error: unknown) {
-      const failure = describeFulfilmentFailure(error, order.number)
-      if (failure.latestOrder) onOrderChange(failure.latestOrder)
-      if (failure.shouldReload) onReload()
-      onOrdersChanged()
-      setState({ kind: 'failed', message: failure.message })
-    } finally {
-      isSubmittingRef.current = false
-    }
-  }
-
-  const failureAlert = state.kind === 'failed' && (
-    <div role="alert" className="rounded-lg border border-danger-700/30 bg-danger-50 px-3.5 py-3 leading-relaxed text-danger-700">
-      <p className="font-semibold">Order not fulfilled</p>
-      <p className="mt-0.5 text-ink">{state.message}</p>
-    </div>
-  )
+  const isBusy = state.kind === 'refreshing' || state.kind === 'checking'
 
   return (
     <div className="flex flex-col gap-3">
-      {failureAlert}
+      {state.kind === 'checking' && (
+        <p role="status" className="rounded-lg border border-line bg-surface-subtle px-3.5 py-3">
+          Checking the latest status of order #{order.number}…
+        </p>
+      )}
+
+      {result && (
+        <div
+          ref={resultRef}
+          tabIndex={-1}
+          role={result.tone === 'danger' ? 'alert' : 'status'}
+          className={`rounded-lg px-3.5 py-3 leading-relaxed focus:outline-none ${RESULT_STYLES[result.tone]}`}
+        >
+          <p className="font-semibold">{result.title}</p>
+          {result.detail && <p className="mt-0.5 text-ink">{result.detail}</p>}
+          {result.canCheckAgain && (
+            <Button size="sm" className="mt-2" onClick={() => void checkAgain()}>
+              Check again
+            </Button>
+          )}
+        </div>
+      )}
 
       {order.status === 'paid' && (
-        <Button variant="primary" className="w-full" onClick={() => setState({ kind: 'confirming' })}>
-          Mark as fulfilled
+        <Button
+          variant="primary"
+          className="w-full"
+          aria-disabled={isBusy}
+          onClick={() => {
+            if (!isBusy) void start()
+          }}
+        >
+          {state.kind === 'refreshing' ? 'Checking latest status…' : 'Mark as fulfilled'}
         </Button>
       )}
 
@@ -102,12 +108,7 @@ export function FulfilmentPanel({ order, onOrderChange, onReload, onOrdersChange
               <p className="mt-0.5">Order #{order.number} can’t be fulfilled until payment is confirmed. Don’t pack it yet.</p>
             </div>
           )}
-          <Button
-            aria-disabled="true"
-            aria-describedby={reasonId}
-            className="w-full"
-            onClick={() => setState({ kind: 'blocked' })}
-          >
+          <Button aria-disabled="true" aria-describedby={reasonId} className="w-full" onClick={() => void start()}>
             <LockIcon />
             Mark as fulfilled
           </Button>
@@ -117,49 +118,27 @@ export function FulfilmentPanel({ order, onOrderChange, onReload, onOrdersChange
         </>
       )}
 
-      {order.status === 'fulfilled' &&
-        (state.kind === 'succeeded' ? (
-          <p
-            ref={successRef}
-            tabIndex={-1}
-            role="status"
-            className="flex items-center gap-2 rounded-lg bg-brand-50 px-3.5 py-3 font-semibold text-brand-700 focus:outline-none"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M20 6L9 17l-5-5" />
-            </svg>
-            Order #{order.number} fulfilled.
-          </p>
-        ) : (
-          <p className="font-semibold">This order has been fulfilled.</p>
-        ))}
-
-      {order.status === 'cancelled' && <p className="text-muted">Cancelled orders can’t be fulfilled.</p>}
+      {!result && order.status === 'fulfilled' && <p className="font-semibold">This order has been fulfilled.</p>}
+      {!result && order.status === 'cancelled' && <p className="text-muted">Cancelled orders can’t be fulfilled.</p>}
+      {!result && order.status === 'on_hold' && <p className="text-muted">This order is on hold, so it can’t be fulfilled.</p>}
+      {!result && order.status === 'part_refunded' && (
+        <p className="text-muted">This order has been partly refunded, so it can’t be fulfilled from the desk.</p>
+      )}
 
       <ConfirmDialog
         isOpen={(state.kind === 'confirming' || state.kind === 'submitting') && canFulfilOrder(order)}
         title={`Mark order #${order.number} as fulfilled?`}
         description={
           <>
-            {order.customerName} · {formatCurrency(order.total)}. Payment has been received. This tells the team the
-            order has been packed and handed over.
+            {displayCustomerName(order.customerName)} · {formatCurrency(order.total)}. Payment has been received. This
+            tells the team the order has been packed and handed over.
           </>
         }
         confirmLabel="Confirm fulfilment"
         pendingLabel="Fulfilling…"
         isPending={state.kind === 'submitting'}
-        onConfirm={() => void fulfil()}
-        onCancel={() => setState({ kind: 'idle' })}
+        onConfirm={() => void confirm()}
+        onCancel={cancel}
       />
     </div>
   )

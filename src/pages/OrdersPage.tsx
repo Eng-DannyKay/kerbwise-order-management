@@ -1,34 +1,37 @@
 import { useRef, useState } from 'react'
 import { useOrderQuery, type StatusFilter } from '../hooks/useOrderQuery'
 import { useOrders } from '../hooks/useOrders'
+import { useScanner } from '../hooks/useScanner'
 import type { OrderSummary } from '../types/order.types'
-import { ORDER_STATUS_LABELS } from '../utils/order-labels'
+import { describeOrderCount } from '../utils/order-labels'
+import { findOrderToOpen } from '../utils/scan-match'
 import { Button, focusRing } from '../components/ui/Button'
 import { Pagination } from '../components/ui/Pagination'
 import { StateMessage } from '../components/ui/StateMessage'
 import { OrderDetailsDrawer } from '../components/orders/OrderDetailsDrawer'
 import { OrderFilters } from '../components/orders/OrderFilters'
 import { OrdersTable, OrdersTableSkeleton } from '../components/orders/OrdersTable'
+import { ListChangedNotice } from '../components/orders/ListChangedNotice'
+import { RejectedOrdersNotice } from '../components/orders/RejectedOrdersNotice'
 
 export const ORDERS_PAGE_SIZE = 20
 
 function describeResults(total: number, search: string, status: StatusFilter): string {
-  const statusPart = status === 'all' ? '' : `${ORDER_STATUS_LABELS[status].toLowerCase()} `
-  const orders = `${total} ${statusPart}${total === 1 ? 'order' : 'orders'}`
+  const orders = describeOrderCount(total, status)
   if (!search) return orders
   return `${orders} ${total === 1 ? 'matches' : 'match'} “${search}”`
 }
 
 function describeNoResults(search: string, status: StatusFilter): string {
   if (search) return `No orders match “${search}”`
-  return status === 'all' ? 'No orders yet' : `No ${ORDER_STATUS_LABELS[status].toLowerCase()} orders`
+  return status === 'all' ? 'No orders yet' : describeOrderCount(0, status).replace(/^0/, 'No')
 }
 
 export function OrdersPage() {
   const orderQuery = useOrderQuery(ORDERS_PAGE_SIZE)
   const { page, setPage, search, status, isFiltered, clearFilters } = orderQuery
   const sectionRef = useRef<HTMLElement>(null)
-  const { data, error, isLoading, reload } = useOrders(orderQuery.query)
+  const { data, error, isLoading, listChanged, reload } = useOrders(orderQuery.query)
 
   const [selectedOrder, setSelectedOrder] = useState<OrderSummary | null>(null)
   const [openSingleMatch, setOpenSingleMatch] = useState(false)
@@ -40,13 +43,24 @@ export function OrdersPage() {
 
   if (openSingleMatch && !isLoading) {
     setOpenSingleMatch(false)
-    const onlyMatch = !error && data?.total === 1 ? data.orders[0] : undefined
-    if (onlyMatch) setSelectedOrder(onlyMatch)
+    const match = !error && data ? findOrderToOpen(search, data) : undefined
+    if (match) setSelectedOrder(match)
   }
 
   function submitSearch() {
     orderQuery.submitSearch()
+    setOpenSingleMatch(orderQuery.searchText.trim() !== '')
+  }
+
+  useScanner((term) => {
+    setSelectedOrder(null)
+    orderQuery.searchFor(term)
     setOpenSingleMatch(true)
+  })
+
+  function refreshList() {
+    setPage(1)
+    reload()
   }
 
   function changePage(nextPage: number) {
@@ -100,12 +114,15 @@ export function OrdersPage() {
           </div>
         )}
 
+        {data && !error && listChanged && <ListChangedNotice onRefresh={refreshList} />}
+        {data && !error && <RejectedOrdersNotice rejected={data.rejected} />}
+
         <div aria-busy={isLoading} className="border-t border-line-soft">
           {error ? (
             <StateMessage
               tone="danger"
               title="Unable to load orders"
-              description={`${error} No orders were changed.`}
+              description={error}
               action={
                 <Button variant="primary" onClick={reload}>
                   Try again
@@ -114,7 +131,7 @@ export function OrdersPage() {
             />
           ) : !data ? (
             <OrdersTableSkeleton />
-          ) : data.orders.length === 0 ? (
+          ) : data.orders.length === 0 && data.rejected.length > 0 ? null : data.orders.length === 0 ? (
             <StateMessage
               title={describeNoResults(search, status)}
               description={

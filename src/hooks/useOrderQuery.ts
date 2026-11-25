@@ -65,6 +65,10 @@ export function useOrderQuery(pageSize: number) {
     searchText,
     setSearchText,
     submitSearch: () => updateFilters({ q: searchText.trim() }),
+    searchFor: (term: string) => {
+      setSearchText(term)
+      updateFilters({ q: term.trim() })
+    },
     clearSearch: () => {
       setSearchText('')
       updateFilters({ q: '' })

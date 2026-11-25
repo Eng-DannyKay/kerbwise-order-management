@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import type { SortOptionValue, StatusFilter } from '../../hooks/useOrderQuery'
 import { ORDER_STATUSES } from '../../types/order.types'
 import { ORDER_STATUS_LABELS } from '../../utils/order-labels'
@@ -11,6 +11,11 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 ]
 
 const fieldClassName = `h-11 w-full rounded-lg border border-line-strong bg-white text-base sm:h-10 sm:text-sm ${focusRing}`
+
+/** Mouse or trackpad devices, such as the scanner station. On touch screens focusing would open the keyboard. */
+function hasPrecisePointer(): boolean {
+  return window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches ?? false
+}
 
 interface OrderFiltersProps {
   searchText: string
@@ -34,6 +39,10 @@ export function OrderFilters({
   onSortChange,
 }: OrderFiltersProps) {
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (hasPrecisePointer()) searchInputRef.current?.focus()
+  }, [])
 
   return (
     <div>
@@ -88,7 +97,6 @@ export function OrderFilters({
             inputMode="search"
             enterKeyHint="search"
             autoComplete="off"
-            autoFocus
             placeholder="Order number or customer"
             value={searchText}
             onChange={(event) => onSearchTextChange(event.target.value)}

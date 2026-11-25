@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import { ApiError, FulfilmentNotAllowedError } from '../../src/services/api-error'
-import { getOrder, getOrders, updateOrderStatus } from '../../src/services/orders-api'
+import { getAllOrders, getOrder, getOrders, MAX_COLLECTION_PAGES, REQUEST_TIMEOUT_MS, updateOrderStatus } from '../../src/services/orders-api'
 import type { OrderDetail, OrderSummary } from '../../src/types/order.types'
 
 const summary: OrderSummary = {
@@ -68,7 +68,7 @@ describe('getOrders', () => {
       pageSize: '20',
     })
     expect(requestedInit(fetchMock).headers).toMatchObject({ Authorization: 'Bearer test-token' })
-    expect(page).toEqual({ orders: [summary], page: 2, pageSize: 20, total: 148 })
+    expect(page).toEqual({ orders: [summary], rejected: [], page: 2, pageSize: 20, total: 148 })
   })
 
   it('never requests more than 50 orders per page', async () => {
@@ -87,8 +87,18 @@ describe('getOrders', () => {
     expect(requestedUrl(fetchMock).searchParams.has('q')).toBe(false)
   })
 
-  it('rejects a response that does not match the contract', async () => {
-    mockFetch(jsonResponse({ orders: [{ ...summary, status: 'shipped' }], page: 1, pageSize: 20, total: 1 }))
+  it('reports an unreadable order without failing the rest of the page', async () => {
+    const other = { ...summary, id: 'ord_2202', number: 2202 }
+    mockFetch(jsonResponse({ orders: [{ ...summary, status: 'shipped' }, other], page: 1, pageSize: 20, total: 2 }))
+
+    const page = await getOrders()
+
+    expect(page.orders.map((order) => order.number)).toEqual([2202])
+    expect(page.rejected).toEqual([{ id: 'ord_2201', number: 2201, reason: 'unknown status "shipped"' }])
+  })
+
+  it('rejects a response whose page information is missing', async () => {
+    mockFetch(jsonResponse({ orders: [summary] }))
 
     await expect(getOrders()).rejects.toMatchObject({ name: 'ApiError', code: 'invalid_response' })
   })
@@ -143,9 +153,190 @@ describe('updateOrderStatus', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('accepts the response for a fulfilled till order with no customer name', async () => {
+    mockFetch(jsonResponse({ ...detail, customerName: null, phone: null, channel: 'pos', address: null, status: 'fulfilled', version: 2 }))
+
+    await expect(updateOrderStatus(summary, 'fulfilled')).resolves.toMatchObject({ status: 'fulfilled', customerName: null })
+  })
+
   it('surfaces a 409 version conflict with its code', async () => {
     mockFetch(jsonResponse({ code: 'stale', current: { ...detail, version: 2 } }, 409))
 
     await expect(updateOrderStatus(summary, 'fulfilled')).rejects.toMatchObject({ status: 409, code: 'stale' })
+  })
+})
+
+describe('request reliability', () => {
+  function hangingFetch() {
+    return jest.spyOn(globalThis, 'fetch').mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+        }),
+    )
+  }
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('gives up with a timeout error when the service never answers', async () => {
+    jest.useFakeTimers()
+    hangingFetch()
+
+    const result = getOrders().catch((caught: unknown) => caught)
+    await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS)
+
+    await expect(result).resolves.toMatchObject({ name: 'ApiError', status: null, code: 'timeout' })
+  })
+
+  it('also times out a fulfilment request instead of leaving it pending', async () => {
+    jest.useFakeTimers()
+    hangingFetch()
+
+    const result = updateOrderStatus(summary, 'fulfilled').catch((caught: unknown) => caught)
+    await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS)
+
+    await expect(result).resolves.toMatchObject({ name: 'ApiError', code: 'timeout' })
+  })
+
+  it('passes a cancellation by the caller through unchanged', async () => {
+    hangingFetch()
+    const controller = new AbortController()
+
+    const result = getOrders({}, { signal: controller.signal }).catch((caught: unknown) => caught)
+    controller.abort()
+
+    await expect(result).resolves.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('treats a connection that drops while reading the body as a network failure', async () => {
+    const brokenBody = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"orders": ['))
+        controller.error(new TypeError('network error'))
+      },
+    })
+    mockFetch(new Response(brokenBody, { status: 200 }))
+
+    const error: unknown = await getOrders().catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ status: null, code: 'network', message: expect.stringContaining('Could not reach the orders service') })
+  })
+
+  it('keeps the HTTP status of an error page that is not JSON', async () => {
+    mockFetch(new Response('<html><h1>Bad Gateway</h1></html>', { status: 502, headers: { 'Content-Type': 'text/html' } }))
+
+    await expect(getOrders()).rejects.toMatchObject({ status: 502, code: null })
+  })
+
+  it('flags a successful response whose body cannot be read as JSON', async () => {
+    mockFetch(new Response('{"orders": [', { status: 200 }))
+
+    await expect(getOrders()).rejects.toMatchObject({ status: 200, code: 'invalid_json' })
+  })
+})
+
+describe('rate limiting', () => {
+  function limited(retryAfter: string | null = '1') {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (retryAfter !== null) headers['Retry-After'] = retryAfter
+    return new Response(JSON.stringify({ code: 'slow_down' }), { status: 429, headers })
+  }
+  const okPage = () => jsonResponse({ orders: [summary], page: 1, pageSize: 20, total: 1 })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('retries a read once after the Retry-After wait', async () => {
+    jest.useFakeTimers()
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(limited('1')).mockResolvedValueOnce(okPage())
+
+    const result = getOrders()
+    await jest.advanceTimersByTimeAsync(999)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await jest.advanceTimersByTimeAsync(501)
+
+    await expect(result).resolves.toMatchObject({ total: 1 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries at most once', async () => {
+    jest.useFakeTimers()
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(limited()).mockResolvedValueOnce(limited()).mockResolvedValue(okPage())
+
+    const result = getOrder('ord_2201').catch((caught: unknown) => caught)
+    await jest.advanceTimersByTimeAsync(5000)
+
+    await expect(result).resolves.toMatchObject({ status: 429, code: 'slow_down', retryAfterSeconds: 1 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not wait silently when the server asks for a long pause', async () => {
+    const fetchMock = mockFetch(limited('30'))
+
+    await expect(getOrders()).rejects.toMatchObject({ status: 429, retryAfterSeconds: 30 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('never retries a fulfilment', async () => {
+    const fetchMock = mockFetch(limited('1'))
+
+    await expect(updateOrderStatus(summary, 'fulfilled')).rejects.toMatchObject({ status: 429 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops waiting when the request is cancelled', async () => {
+    const fetchMock = mockFetch(limited('5'))
+    const controller = new AbortController()
+
+    const result = getOrders({}, { signal: controller.signal }).catch((caught: unknown) => caught)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    controller.abort()
+
+    await expect(result).resolves.toMatchObject({ name: 'AbortError' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('getAllOrders', () => {
+  const order = (number: number) => ({ ...summary, id: `ord_${number}`, number })
+  const pageOf = (numbers: number[], page: number, total: number) =>
+    jsonResponse({ orders: numbers.map(order), page, pageSize: 50, total })
+
+  it('loads every page in turn with the filters, 50 at a time, sorted by date', async () => {
+    const fetchMock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(pageOf([3, 2], 1, 120))
+      .mockResolvedValueOnce(pageOf([1], 2, 120))
+      .mockResolvedValueOnce(pageOf([0], 3, 120))
+
+    const collection = await getAllOrders({ q: 'ben', status: 'paid' })
+
+    const queries = fetchMock.mock.calls.map(([input]) => Object.fromEntries(new URL(String(input)).searchParams))
+    expect(queries).toEqual([1, 2, 3].map((page) => ({ q: 'ben', status: 'paid', sort: 'createdAt', dir: 'desc', page: String(page), pageSize: '50' })))
+    expect(collection.orders.map((o) => o.number)).toEqual([3, 2, 1, 0])
+    expect(collection.changedWhileLoading).toBe(false)
+  })
+
+  it('removes an order that appears on two pages and flags that the list moved', async () => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(pageOf([5, 4], 1, 60))
+      .mockResolvedValueOnce(pageOf([4, 3], 2, 61))
+
+    const collection = await getAllOrders({})
+
+    expect(collection.orders.map((o) => o.number)).toEqual([5, 4, 3])
+    expect(collection.changedWhileLoading).toBe(true)
+  })
+
+  it('refuses to load more than the page limit', async () => {
+    const fetchMock = mockFetch(pageOf([1], 1, (MAX_COLLECTION_PAGES + 1) * 50))
+
+    await expect(getAllOrders({})).rejects.toMatchObject({ code: 'too_many' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

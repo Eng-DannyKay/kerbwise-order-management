@@ -4,13 +4,22 @@ export class ApiError extends Error {
   /** Error `code` from the response body, e.g. `stale`. */
   readonly code: string | null
   readonly body: unknown
+  /** Seconds the server asked clients to wait, from a `Retry-After` header. */
+  readonly retryAfterSeconds: number | null
 
-  constructor(message: string, status: number | null, code: string | null = null, body: unknown = null) {
+  constructor(
+    message: string,
+    status: number | null,
+    code: string | null = null,
+    body: unknown = null,
+    retryAfterSeconds: number | null = null,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.body = body
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 

@@ -86,17 +86,30 @@ describe('Order details', () => {
 
   it('shows an error with a retry when the order cannot be loaded', async () => {
     getOrderMock
-      .mockRejectedValueOnce(new ApiError('Request failed with status 404.', 404, 'not_found'))
+      .mockRejectedValueOnce(new ApiError('Could not reach the orders service. Check your connection and try again.', null, 'network'))
       .mockResolvedValueOnce(detail)
 
     const { user, dialog } = await openOrder(2201)
 
     const alert = await within(dialog).findByRole('alert')
-    expect(alert).toHaveTextContent('This order could not be found.')
+    expect(alert).toHaveTextContent('Unable to load this order')
+    expect(alert).toHaveTextContent('Could not reach the orders service.')
 
     await user.click(within(alert).getByRole('button', { name: 'Try again' }))
 
     expect(await within(dialog).findByRole('table', { name: 'Items in order #2201' })).toBeInTheDocument()
+  })
+
+  it('says a removed order no longer exists, without a pointless retry, and refreshes the list', async () => {
+    getOrderMock.mockRejectedValue(new ApiError('Request failed with status 404.', 404, 'not_found'))
+
+    const { dialog } = await openOrder(2201)
+    const listCalls = getOrdersMock.mock.calls.length
+
+    const alert = await within(dialog).findByRole('alert')
+    expect(alert).toHaveTextContent('Order #2201 no longer exists')
+    expect(within(alert).queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+    await waitFor(() => expect(getOrdersMock.mock.calls.length).toBeGreaterThan(listCalls))
   })
 
   it('closes with the close button', async () => {
@@ -134,5 +147,16 @@ describe('Order details', () => {
     await waitFor(() => expect(getOrdersMock).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'ben' }), expect.anything()))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(getOrderMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('Order details header', () => {
+  it('does not show the list’s status as current when the order could not be loaded', async () => {
+    getOrderMock.mockRejectedValue(new ApiError('Request failed with status 404.', 404, 'not_found'))
+
+    const { dialog } = await openOrder(2201)
+
+    await within(dialog).findByRole('alert')
+    expect(within(dialog).queryByText('Paid')).not.toBeInTheDocument()
   })
 })

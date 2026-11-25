@@ -8,6 +8,7 @@ interface SettledRequest {
   key: string
   order: OrderDetail | null
   error: string | null
+  isGone: boolean
 }
 
 /**
@@ -26,15 +27,13 @@ export function useOrderDetail(orderId: string) {
 
     getOrder(orderId, { signal: controller.signal })
       .then((order) => {
-        if (!controller.signal.aborted) setSettled({ key: requestKey, order, error: null })
+        if (!controller.signal.aborted) setSettled({ key: requestKey, order, error: null, isGone: false })
       })
       .catch((caught: unknown) => {
         if (controller.signal.aborted) return
-        const error =
-          caught instanceof ApiError && caught.status === 404
-            ? 'This order could not be found. It may have been removed.'
-            : getErrorMessage(caught)
-        setSettled({ key: requestKey, order: null, error })
+        const isGone = caught instanceof ApiError && caught.status === 404
+        const error = isGone ? 'It may have been removed, so nothing can be done with it here.' : getErrorMessage(caught)
+        setSettled({ key: requestKey, order: null, error, isGone })
       })
 
     return () => controller.abort()
@@ -45,7 +44,7 @@ export function useOrderDetail(orderId: string) {
   const replaceOrder = useCallback(
     (order: OrderDetail) => {
       inFlightRef.current?.abort()
-      setSettled({ key: requestKey, order, error: null })
+      setSettled({ key: requestKey, order, error: null, isGone: false })
     },
     [requestKey],
   )
@@ -55,6 +54,7 @@ export function useOrderDetail(orderId: string) {
   return {
     order: settled?.order ?? null,
     error: isCurrent ? settled.error : null,
+    isGone: isCurrent && settled.isGone,
     isLoading: !isCurrent,
     reload,
     replaceOrder,
