@@ -2,7 +2,7 @@
 
 A browser-based order desk for **Fern & Thistle**, the Kerbwise pilot shop in Hackney, London. Shop owners and packing staff can:
 
-- see incoming orders, 20 per page, from the website, WhatsApp and the till
+- see incoming orders, 50 per page, from the website, WhatsApp and the till (50 is also the most the API returns in one request, so the desk never asks for more)
 - search by customer name or order number; a barcode scanner that types the number and presses Enter opens the order directly, even while another order is open
 - filter by status (New, Paid, Fulfilled, Cancelled, On hold, Part refunded) and sort by date created or total
 - open an order to see its items, quantities, line totals, delivery address and note
