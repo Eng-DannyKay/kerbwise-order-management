@@ -27,7 +27,7 @@ beforeEach(() => {
   getOrdersMock.mockImplementation((query: OrdersQuery = {}) => {
     if (query.q === '2345') return Promise.resolve(buildPage([order2345, order2237]))
     if (query.q === '2237') return Promise.resolve(buildPage([order2237]))
-    return Promise.resolve(buildPage([order2201, order2237], { total: 45 }))
+    return Promise.resolve(buildPage([order2201, order2237], { total: 148 }))
   })
   getOrderMock.mockImplementation((id: string) => Promise.resolve(detail(Number(id.replace('ord_', '')))))
 })
@@ -119,7 +119,7 @@ describe('List changes while browsing', () => {
   it('says the list has changed when the total moves between pages, and refreshes from page 1', async () => {
     const user = userEvent.setup()
     getOrdersMock.mockImplementation((query: OrdersQuery = {}) =>
-      Promise.resolve(buildPage([buildOrder({ id: `ord_${query.page}`, number: 3000 + (query.page ?? 1) })], { page: query.page ?? 1, total: query.page === 2 ? 46 : 45 })),
+      Promise.resolve(buildPage([buildOrder({ id: `ord_${query.page}`, number: 3000 + (query.page ?? 1) })], { page: query.page ?? 1, total: query.page === 2 ? 149 : 148 })),
     )
     render(<OrdersPage />)
     await screen.findByRole('table')

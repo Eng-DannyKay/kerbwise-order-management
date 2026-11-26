@@ -48,6 +48,8 @@ export function useOrders(query: OrdersQuery): UseOrdersResult {
 
   const { q, status, sort, dir, page = 1, pageSize = 20 } = query
   const sortsWholeCollection = sort === 'total'
+  // The whole collection is paged locally, so changing page must not load it again.
+  const serverPage = sortsWholeCollection ? null : page
   const requestKey = JSON.stringify(
     sortsWholeCollection ? ['collection', q, status, dir, reloadCount] : ['page', q, status, sort, dir, page, pageSize, reloadCount],
   )
@@ -74,13 +76,13 @@ export function useOrders(query: OrdersQuery): UseOrdersResult {
         )
         .catch(fail)
     } else {
-      getOrders({ q, status, sort, dir, page, pageSize }, { signal: controller.signal })
+      getOrders({ q, status, sort, dir, page: serverPage ?? 1, pageSize }, { signal: controller.signal })
         .then((result) => settle({ page: result, collection: null, error: null }))
         .catch(fail)
     }
 
     return () => controller.abort()
-  }, [requestKey, sortsWholeCollection, q, status, sort, dir, page, pageSize])
+  }, [requestKey, sortsWholeCollection, q, status, sort, dir, serverPage, pageSize])
 
   const reload = useCallback(() => setReloadCount((count) => count + 1), [])
   const isLoading = settled?.key !== requestKey

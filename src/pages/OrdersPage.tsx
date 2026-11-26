@@ -16,7 +16,7 @@ import { OrdersTable, OrdersTableSkeleton } from '../components/orders/OrdersTab
 import { ListChangedNotice } from '../components/orders/ListChangedNotice'
 import { RejectedOrdersNotice } from '../components/orders/RejectedOrdersNotice'
 
-export const ORDERS_PAGE_SIZE = 20
+export const ORDERS_PAGE_SIZE = 50
 
 export const TOAST_DURATION_MS = 8000
 

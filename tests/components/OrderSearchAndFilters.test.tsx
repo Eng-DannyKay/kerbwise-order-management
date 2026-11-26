@@ -21,7 +21,7 @@ beforeEach(() => {
     Promise.resolve(
       buildPage([buildOrder({ id: `ord_${query.page ?? 1}`, number: 3000 + (query.page ?? 1) })], {
         page: query.page ?? 1,
-        total: 45,
+        total: 148,
       }),
     ),
   )
@@ -68,7 +68,7 @@ describe('Order search, filters and sorting', () => {
 
     await waitFor(() => expect(lastQuery()).toMatchObject({ q: 'ben', status: 'paid', page: 1 }))
     expect(within(statusGroup).getByRole('button', { name: 'Paid' })).toHaveAttribute('aria-pressed', 'true')
-    expect(await screen.findByText('45 paid orders match “ben”')).toBeInTheDocument()
+    expect(await screen.findByText('148 paid orders match “ben”')).toBeInTheDocument()
   })
 
   it('sorts by date on the server and returns to page 1', async () => {
@@ -135,5 +135,103 @@ describe('Order search, filters and sorting', () => {
 
     await waitFor(() => expect(lastQuery().q).toBeUndefined())
     expect(input).toHaveFocus()
+  })
+})
+
+describe('Pages of 50', () => {
+  const allOrders = Array.from({ length: 148 }, (_, index) =>
+    buildOrder({
+      id: `ord_${4000 - index}`,
+      number: 4000 - index,
+      status: index % 2 === 0 ? 'paid' : 'new',
+      total: index + 1,
+    }),
+  )
+
+  function serve(query: OrdersQuery = {}) {
+    const page = query.page ?? 1
+    const pageSize = Math.min(query.pageSize ?? 20, 50)
+    const matching = allOrders.filter((order) => !query.status || order.status === query.status)
+    return Promise.resolve(
+      buildPage(matching.slice((page - 1) * pageSize, page * pageSize), { page, pageSize, total: matching.length }),
+    )
+  }
+
+  function shownNumbers(): number[] {
+    return within(screen.getByRole('table'))
+      .getAllByRole('rowheader')
+      .map((cell) => Number(cell.textContent?.slice(1)))
+  }
+
+  it('lists all 148 orders as 1–50, 51–100 and 101–148', async () => {
+    const user = userEvent.setup()
+    getOrdersMock.mockImplementation(serve)
+    render(<OrdersPage />)
+
+    expect(await screen.findByText('Showing 1–50 of 148 orders')).toBeInTheDocument()
+    expect(screen.getByText(/Page 1 of 3/)).toBeInTheDocument()
+    expect(shownNumbers()).toHaveLength(50)
+    expect(shownNumbers()[0]).toBe(4000)
+    expect(getOrdersMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 50 }), expect.anything())
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(await screen.findByText('Showing 51–100 of 148 orders')).toBeInTheDocument()
+    expect(shownNumbers()).toHaveLength(50)
+    expect(shownNumbers()[0]).toBe(3950)
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(await screen.findByText('Showing 101–148 of 148 orders')).toBeInTheDocument()
+    expect(shownNumbers()).toHaveLength(48)
+    expect(shownNumbers().at(-1)).toBe(3853)
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('never requests more than 50 orders at a time', async () => {
+    const user = userEvent.setup()
+    getOrdersMock.mockImplementation(serve)
+    render(<OrdersPage />)
+    await screen.findByText('Showing 1–50 of 148 orders')
+    await user.click(screen.getByRole('button', { name: 'Page 3' }))
+    await screen.findByText('Showing 101–148 of 148 orders')
+
+    for (const [query] of getOrdersMock.mock.calls) expect(query?.pageSize).toBe(50)
+  })
+
+  it('pages a status filter in 50s and returns to page 1 when the filter changes', async () => {
+    const user = userEvent.setup()
+    getOrdersMock.mockImplementation(serve)
+    render(<OrdersPage />)
+    await screen.findByText('Showing 1–50 of 148 orders')
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    await screen.findByText('Showing 51–100 of 148 orders')
+
+    await user.click(within(screen.getByRole('group', { name: 'Filter by status' })).getByRole('button', { name: 'Paid' }))
+
+    expect(await screen.findByText('Showing 1–50 of 74 orders')).toBeInTheDocument()
+    expect(getOrdersMock).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'paid', page: 1, pageSize: 50 }), expect.anything())
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(await screen.findByText('Showing 51–74 of 74 orders')).toBeInTheDocument()
+    expect(shownNumbers()).toHaveLength(24)
+  })
+
+  it('sorts every order by total and pages the result in 50s', async () => {
+    const user = userEvent.setup()
+    getOrdersMock.mockImplementation(serve)
+    getAllOrdersMock.mockResolvedValue({ orders: allOrders, rejected: [], changedWhileLoading: false })
+    render(<OrdersPage />)
+    await screen.findByText('Showing 1–50 of 148 orders')
+
+    await user.click(screen.getByRole('button', { name: /^Sort:/ }))
+    await user.click(screen.getByRole('menuitemradio', { name: 'Total · High to low' }))
+
+    expect(await screen.findByText('Showing 1–50 of 148 orders')).toBeInTheDocument()
+    await waitFor(() => expect(shownNumbers()[0]).toBe(3853))
+    expect(shownNumbers()).toHaveLength(50)
+
+    await user.click(screen.getByRole('button', { name: 'Page 3' }))
+    expect(await screen.findByText('Showing 101–148 of 148 orders')).toBeInTheDocument()
+    expect(shownNumbers()).toHaveLength(48)
+    expect(shownNumbers().at(-1)).toBe(4000)
+    expect(getAllOrdersMock).toHaveBeenCalledTimes(1)
   })
 })

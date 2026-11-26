@@ -17,5 +17,5 @@ export function buildOrder(overrides: Partial<OrderSummary> = {}): OrderSummary 
 }
 
 export function buildPage(orders: OrderSummary[], overrides: Partial<OrdersPage> = {}): OrdersPage {
-  return { orders, rejected: [], page: 1, pageSize: 20, total: orders.length, ...overrides }
+  return { orders, rejected: [], page: 1, pageSize: 50, total: orders.length, ...overrides }
 }
