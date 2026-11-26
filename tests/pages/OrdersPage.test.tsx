@@ -9,7 +9,7 @@ jest.mock('../../src/services/orders-api')
 
 const getOrdersMock = jest.mocked(getOrders)
 
-const DEFAULT_QUERY = { sort: 'createdAt', dir: 'desc', page: 1, pageSize: 20 }
+const DEFAULT_QUERY = { sort: 'createdAt', dir: 'desc', page: 1, pageSize: 50 }
 
 afterEach(() => {
   jest.resetAllMocks()
@@ -49,13 +49,13 @@ describe('OrdersPage', () => {
     expect(screen.queryByText(/\+447467220101/)).not.toBeInTheDocument()
   })
 
-  it('requests at most 20 orders per page and moves between pages', async () => {
+  it('requests 50 orders per page and moves between pages', async () => {
     const user = userEvent.setup()
     getOrdersMock.mockImplementation((query = {}) =>
       Promise.resolve(
         buildPage([buildOrder({ id: `ord_${query.page ?? 1}`, number: 3000 + (query.page ?? 1) })], {
           page: query.page ?? 1,
-          total: 45,
+          total: 148,
         }),
       ),
     )
@@ -71,15 +71,15 @@ describe('OrdersPage', () => {
     expect(await screen.findByText(/Page 2 of 3/)).toBeInTheDocument()
     expect(await within(screen.getByRole('table')).findByText('#3002')).toBeInTheDocument()
     expect(getOrdersMock).toHaveBeenLastCalledWith({ ...DEFAULT_QUERY, page: 2 }, expect.anything())
-    expect(screen.getByText('Showing 21–40 of 45 orders')).toBeInTheDocument()
+    expect(screen.getByText('Showing 51–100 of 148 orders')).toBeInTheDocument()
   })
 
   it('moves back to the last page when the requested page no longer exists', async () => {
     const user = userEvent.setup()
-    let total = 45
+    let total = 148
     getOrdersMock.mockImplementation((query = {}) => {
       const page = query.page ?? 1
-      if (page === 3) total = 30
+      if (page === 3) total = 80
       return Promise.resolve(buildPage([buildOrder({ id: `ord_${page}`, number: 3000 + page })], { page, total }))
     })
 
@@ -90,7 +90,7 @@ describe('OrdersPage', () => {
 
     await waitFor(() => expect(getOrdersMock).toHaveBeenLastCalledWith({ ...DEFAULT_QUERY, page: 2 }, expect.anything()))
     expect(await within(screen.getByRole('table')).findByText('#3002')).toBeInTheDocument()
-    expect(screen.getByText('Showing 21–30 of 30 orders')).toBeInTheDocument()
+    expect(screen.getByText('Showing 51–80 of 80 orders')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute('aria-disabled', 'true')
   })
 

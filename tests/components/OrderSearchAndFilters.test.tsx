@@ -21,7 +21,7 @@ beforeEach(() => {
     Promise.resolve(
       buildPage([buildOrder({ id: `ord_${query.page ?? 1}`, number: 3000 + (query.page ?? 1) })], {
         page: query.page ?? 1,
-        total: 45,
+        total: 148,
       }),
     ),
   )
@@ -68,7 +68,7 @@ describe('Order search, filters and sorting', () => {
 
     await waitFor(() => expect(lastQuery()).toMatchObject({ q: 'ben', status: 'paid', page: 1 }))
     expect(within(statusGroup).getByRole('button', { name: 'Paid' })).toHaveAttribute('aria-pressed', 'true')
-    expect(await screen.findByText('45 paid orders match “ben”')).toBeInTheDocument()
+    expect(await screen.findByText('148 paid orders match “ben”')).toBeInTheDocument()
   })
 
   it('sorts by date on the server and returns to page 1', async () => {
